@@ -7,13 +7,17 @@ import Combine
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private let prefs  = Prefs.shared
+    private let tasks  = TaskStore.shared
+    private let ui     = UIState()
     private let stats  = Stats.shared
-    private lazy var engine = TimerEngine(prefs: prefs, stats: stats)
+    private lazy var engine = TimerEngine(prefs: prefs, stats: stats, tasks: tasks)
 
     private var panel: NSPanel!
     private var host: NSHostingView<PomodoroView>!
     private var grip: ResizeGripView!
     private var settingsWindow: NSWindow?
+    private var drawer: NSPanel?
+    private var drawerDismissMonitors: [Any] = []
     private var statusItem: NSStatusItem!
     private let hotKeys = HotKeyManager()
 
@@ -47,10 +51,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         startTitleTimer()
         applyHotKeys()
         applyPrefs()
+
+        // Development aid: lets the drawer be inspected without a pointer.
+        // Inert unless the variable is set.
+        if ProcessInfo.processInfo.environment["POMODORO_DEBUG_DRAWER"] != nil {
+            toggleDrawer()
+        }
     }
 
     func applicationWillTerminate(_ note: Notification) {
         mouseMonitors.forEach { NSEvent.removeMonitor($0) }
+        drawerDismissMonitors.forEach { NSEvent.removeMonitor($0) }
         hotKeys.disable()
     }
 
@@ -83,6 +94,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let view = PomodoroView(
             engine: engine,
             prefs: prefs,
+            ui: ui,
+            onToggleDrawer: { [weak self] in self?.toggleDrawer() },
             onHoverChange: { [weak self] inside in self?.setPointerInside(inside) },
             onOpenSettings: { [weak self] in self?.openSettings() }
         )
@@ -134,6 +147,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard !isSnapping, !isResizing else { return }
         if prefs.snapToEdges { snapToEdge() }
         prefs.origin = panel.frame.origin
+        positionDrawer()
     }
 
     /// Magnetic edges: within 18pt of a screen edge, sit flush against it.
@@ -211,6 +225,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in self?.applyPrefs() }
             .store(in: &bag)
+
+        tasks.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in self?.syncDrawerHeight() }
+            .store(in: &bag)
     }
 
     private func applyHotKeys() {
@@ -219,6 +238,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             1: { [weak self] in self?.engine.toggle() },
             2: { [weak self] in self?.engine.skip() },
             3: { [weak self] in self?.engine.reset() },
+            4: { [weak self] in self?.toggleDrawer() },
         ])
     }
 
@@ -227,6 +247,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         applySize()
         applyAlpha()
         panel.level = prefs.alwaysOnTop ? .floating : .normal
+        drawer?.level = panel.level
+        drawer?.alphaValue = prefs.opacity
         if !prefs.clickThrough { panel.ignoresMouseEvents = false }
         if !isResizing { panel.orderFrontRegardless() }
     }
@@ -242,6 +264,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         panel.contentView?.frame = NSRect(x: 0, y: 0, width: side, height: side)
         host.frame = NSRect(x: 0, y: 0, width: side, height: side)
         layoutGrip()
+        positionDrawer()
         if !isResizing { prefs.origin = panel.frame.origin }
     }
 
@@ -294,6 +317,113 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    // MARK: Task drawer
+
+    private func toggleDrawer() { drawer == nil ? openDrawer() : closeDrawer() }
+
+    private func openDrawer() {
+        let h = TaskDrawerView.height(for: tasks.items.count)
+        let p = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: TaskDrawerView.width, height: h),
+            styleMask: [.nonactivatingPanel, .borderless, .fullSizeContentView],
+            backing: .buffered, defer: false
+        )
+        p.isFloatingPanel = true
+        p.level = prefs.alwaysOnTop ? .floating : .normal
+        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
+        p.isOpaque = false
+        p.backgroundColor = .clear
+        p.hasShadow = true
+        p.hidesOnDeactivate = false
+        // The quick-add field needs keystrokes, but merely glancing at your list
+        // must not steal focus from your editor. becomesKeyOnlyIfNeeded gives
+        // exactly that: the panel takes key status only when you click the field.
+        p.becomesKeyOnlyIfNeeded = true
+        p.worksWhenModal = true
+        p.animationBehavior = .none
+        p.isReleasedWhenClosed = false
+        p.alphaValue = prefs.opacity
+
+        p.contentView = NSHostingView(rootView: TaskDrawerView(
+            tasks: tasks, prefs: prefs, engine: engine,
+            onStart: { [weak self] id in
+                self?.engine.focus(on: id)
+                self?.closeDrawer()        // you picked a task; get out of the way
+            }))
+
+        drawer = p
+        positionDrawer()
+        p.orderFrontRegardless()
+        ui.drawerOpen = true
+        installDrawerDismissal()
+    }
+
+    private func closeDrawer() {
+        drawerDismissMonitors.forEach { NSEvent.removeMonitor($0) }
+        drawerDismissMonitors.removeAll()
+        drawer?.orderOut(nil)
+        drawer = nil
+        ui.drawerOpen = false
+    }
+
+    /// Sits just under the disc, centred on it — and flips above when the dial
+    /// is parked near the bottom of the screen.
+    private func positionDrawer() {
+        guard let drawer else { return }
+        let dial = panel.frame
+        let margin = dial.width * 0.09          // transparent shadow border
+        let gap: CGFloat = 6
+        let w = TaskDrawerView.width
+        let h = drawer.frame.height
+
+        let screen = (NSScreen.screens.first { $0.frame.intersects(dial) } ?? NSScreen.main)
+        let vf = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+
+        drawer.setFrame(DrawerLayout.frame(dial: dial, screen: vf, width: w, height: h,
+                                           margin: margin, gap: gap),
+                        display: true)
+    }
+
+    /// The drawer is sized from the task count rather than SwiftUI's intrinsic
+    /// height, so it never shows dead space or a scrollbar it doesn't need.
+    private func syncDrawerHeight() {
+        guard let drawer else { return }
+        let h = TaskDrawerView.height(for: tasks.items.count)
+        guard abs(drawer.frame.height - h) > 0.5 else { return }
+        var f = drawer.frame
+        f.origin.y += f.height - h              // keep the top edge put
+        f.size.height = h
+        drawer.setFrame(f, display: true)
+        positionDrawer()
+    }
+
+    private func installDrawerDismissal() {
+        if let g = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown],
+            handler: { [weak self] _ in self?.closeIfClickedOutside() }
+        ) { drawerDismissMonitors.append(g) }
+
+        if let l = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown, .keyDown],
+            handler: { [weak self] event in
+                if event.type == .keyDown {
+                    if event.keyCode == 53 { self?.closeDrawer(); return nil }  // esc
+                    return event
+                }
+                self?.closeIfClickedOutside()
+                return event
+            }
+        ) { drawerDismissMonitors.append(l) }
+    }
+
+    private func closeIfClickedOutside() {
+        guard let drawer else { return }
+        let m = NSEvent.mouseLocation
+        // The dial counts as "inside" so the chevron can toggle it shut itself.
+        guard !drawer.frame.contains(m), !panel.frame.contains(m) else { return }
+        closeDrawer()
+    }
+
     // MARK: Settings window
 
     private func openSettings() {
@@ -306,7 +436,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             w.title = "Pomodoro Settings"
             w.contentView = NSHostingView(
                 rootView: SettingsView(prefs: prefs, stats: stats, engine: engine,
-                                       hotKeys: hotKeys))
+                                       hotKeys: hotKeys, tasks: tasks))
             w.isReleasedWhenClosed = false
             w.center()
             settingsWindow = w
@@ -364,6 +494,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         sizeItem.submenu = sizes
         menu.addItem(sizeItem)
 
+        let taskMenu = NSMenu()
+        let pending = tasks.ordered.filter { !$0.done }.prefix(8)
+        if pending.isEmpty {
+            let empty = NSMenuItem(title: "No tasks yet", action: nil, keyEquivalent: "")
+            empty.isEnabled = false
+            taskMenu.addItem(empty)
+        } else {
+            for item in pending {
+                let mi = NSMenuItem(title: "\(item.title)  ·  \(TaskDuration.label(item.minutes))",
+                                    action: #selector(startTask(_:)), keyEquivalent: "")
+                mi.target = self
+                mi.representedObject = item.id.uuidString
+                mi.state = item.id == tasks.activeID ? .on : .off
+                taskMenu.addItem(mi)
+            }
+        }
+        taskMenu.addItem(.separator())
+        let showList = NSMenuItem(title: "Show Task List", action: #selector(showDrawer),
+                                  keyEquivalent: "")
+        showList.target = self
+        taskMenu.addItem(showList)
+        let tasksItem = NSMenuItem(title: "Tasks", action: nil, keyEquivalent: "")
+        tasksItem.submenu = taskMenu
+        menu.addItem(tasksItem)
+
         add(menu, "Settings…", #selector(showSettings), key: ",")
         add(menu, "Reset Position", #selector(recenter))
         menu.addItem(.separator())
@@ -390,6 +545,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func pickSize(_ sender: NSMenuItem) {
         guard let value = sender.representedObject as? Double else { return }
         prefs.size = value
+    }
+
+    @objc private func startTask(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let id = UUID(uuidString: raw)
+        else { return }
+        engine.focus(on: id)
+        closeDrawer()
+    }
+
+    @objc private func showDrawer() {
+        if drawer == nil { toggleDrawer() }
     }
 
     @objc private func recenter() {

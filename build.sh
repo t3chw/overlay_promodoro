@@ -12,26 +12,30 @@ VERSION="$(tr -d '[:space:]' < VERSION)"
 DEPLOY_TARGET="14.0"
 APP="build/Pomodoro.app"
 SOURCES=(src/Geometry.swift src/HotKeys.swift src/ResizeGrip.swift src/Prefs.swift
-         src/Engine.swift src/PomodoroView.swift src/SettingsView.swift src/main.swift)
+         src/Tasks.swift src/Engine.swift src/PomodoroView.swift src/TaskDrawer.swift
+         src/SettingsView.swift src/main.swift)
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" build/obj
 
-slices=()
-for arch in arm64 x86_64; do
-  out="build/obj/Pomodoro-$arch"
-  if swiftc -O -swift-version 5 \
-       -target "${arch}-apple-macos${DEPLOY_TARGET}" \
-       -o "$out" "${SOURCES[@]}" 2>/dev/null; then
-    slices+=("$out")
-  else
-    echo "  note: $arch slice unavailable on this toolchain, skipping"
-  fi
-done
+# The host slice is built first with diagnostics on: a compile error there is a
+# real failure and must be shown, not swallowed into "no architecture built".
+HOST_ARCH="$(uname -m)"
+if [ "$HOST_ARCH" = "arm64" ]; then CROSS_ARCH=x86_64; else CROSS_ARCH=arm64; fi
 
-if [ ${#slices[@]} -eq 0 ]; then
-  echo "error: no architecture built" >&2
-  exit 1
+swiftc -O -swift-version 5 \
+  -target "${HOST_ARCH}-apple-macos${DEPLOY_TARGET}" \
+  -o "build/obj/Pomodoro-${HOST_ARCH}" "${SOURCES[@]}"
+slices=("build/obj/Pomodoro-${HOST_ARCH}")
+
+# The cross slice may legitimately be unavailable on a stripped-down toolchain,
+# so degrade to a thin binary rather than failing the build.
+if swiftc -O -swift-version 5 \
+     -target "${CROSS_ARCH}-apple-macos${DEPLOY_TARGET}" \
+     -o "build/obj/Pomodoro-${CROSS_ARCH}" "${SOURCES[@]}" 2>build/obj/cross.log; then
+  slices+=("build/obj/Pomodoro-${CROSS_ARCH}")
+else
+  echo "  note: ${CROSS_ARCH} slice unavailable — see build/obj/cross.log"
 fi
 lipo -create -output "$APP/Contents/MacOS/Pomodoro" "${slices[@]}"
 

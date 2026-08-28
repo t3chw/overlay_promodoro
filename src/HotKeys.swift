@@ -27,6 +27,8 @@ final class HotKeyManager: ObservableObject {
              modifiers: UInt32(controlKey | optionKey | cmdKey), display: "⌃⌥⌘K"),
         Spec(id: 3, name: "Restart phase", keyCode: UInt32(kVK_ANSI_R),
              modifiers: UInt32(controlKey | optionKey | cmdKey), display: "⌃⌥⌘R"),
+        Spec(id: 4, name: "Show tasks",    keyCode: UInt32(kVK_ANSI_T),
+             modifiers: UInt32(controlKey | optionKey | cmdKey), display: "⌃⌥⌘T"),
     ]
 
     /// Which specs actually got the key combination. Registration fails if

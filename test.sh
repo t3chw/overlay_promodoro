@@ -4,5 +4,5 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 mkdir -p build
-swiftc -swift-version 5 -o build/enginetests src/Geometry.swift src/ResizeGrip.swift src/Prefs.swift src/Engine.swift tests/main.swift
+swiftc -swift-version 5 -o build/enginetests src/Geometry.swift src/ResizeGrip.swift src/Prefs.swift src/Tasks.swift src/Engine.swift src/PomodoroView.swift src/TaskDrawer.swift tests/main.swift
 ./build/enginetests

@@ -5,7 +5,9 @@ import SwiftUI
 struct PomodoroView: View {
     @ObservedObject var engine: TimerEngine
     @ObservedObject var prefs: Prefs
+    @ObservedObject var ui: UIState = UIState()
 
+    var onToggleDrawer: () -> Void = {}
     var onHoverChange: (Bool) -> Void = { _ in }
     var onOpenSettings: () -> Void = {}
 
@@ -31,14 +33,15 @@ struct PomodoroView: View {
     private var lineWidth: CGFloat { max(3.5, 11 * u) }
     private var ring: CGFloat { disc - lineWidth - 19 * u }
 
-    /// How far along the 45° diagonal the gear and close buttons sit. Derived
-    /// from the ring's inner edge rather than guessed, so they tuck inside the
-    /// stroke at every size instead of landing on top of the coloured arc.
-    private var cornerInset: CGFloat {
-        let ringInner = ring / 2 - lineWidth / 2
-        let buttonR = max(17, 21 * u) / 2
-        return max(0, (ringInner - buttonR - 2 * u) / 1.41421)
-    }
+    /// Per-axis offset that puts the gear and close buttons on the 45° points
+    /// of the disc's edge — out in the bezel with the resize grip and the drawer
+    /// tab, rather than inside the ring.
+    ///
+    /// They used to tuck inside the stroke, which was fine for a short "FOCUS"
+    /// label but collides head-on with a task name, since the name wants the
+    /// full width of the dial. Moving them to the rim gives the headline the
+    /// whole top of the disc and groups every edge control together.
+    private var cornerInset: CGFloat { discR * 0.7071 }
 
     /// Below this there is no room for the time *and* the controls, so hovering
     /// swaps one for the other rather than hiding the controls entirely.
@@ -80,7 +83,9 @@ struct PomodoroView: View {
             dial(progress: progress)
             readout(left: left)
             cornerButtons
+            drawerTab
         }
+        .help(engine.activeTaskTitle ?? "")
         .animation(.easeInOut(duration: 0.35), value: engine.phase)
         .animation(.easeInOut(duration: 0.2), value: prefs.themeID)
     }
@@ -151,10 +156,17 @@ struct PomodoroView: View {
         ZStack {
             VStack(spacing: 2 * u) {
                 if showLabel {
-                    Text(engine.phase.title)
-                        .font(.system(size: 9 * u, weight: .semibold, design: .rounded))
-                        .tracking(2.2 * u)
-                        .foregroundStyle(.white.opacity(0.55))
+                    // A task name is content, so it gets sentence case, more
+                    // weight and more contrast. A phase name is a label, so it
+                    // keeps the small tracked-caps treatment.
+                    Text(engine.headline)
+                        .font(.system(size: (engine.headlineIsTask ? 10.5 : 9) * u,
+                                      weight: .semibold, design: .rounded))
+                        .tracking(engine.headlineIsTask ? 0 : 2.2 * u)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: ring * 0.74)
+                        .foregroundStyle(.white.opacity(engine.headlineIsTask ? 0.80 : 0.55))
                 }
 
                 Text(TimerEngine.format(left))
@@ -222,6 +234,28 @@ struct PomodoroView: View {
                 .offset(x: inset, y: -inset)
         }
         .opacity(hovering ? 1 : 0)
+    }
+
+    /// A pull-tab hanging off the bottom edge of the disc. Kept faintly visible
+    /// rather than hover-only: an invisible affordance is an unused feature, and
+    /// this is the entry point to the whole task list.
+    private var drawerTab: some View {
+        Button(action: onToggleDrawer) {
+            ZStack {
+                Capsule().fill(Color.black.opacity(0.72))
+                Capsule().strokeBorder(Color.white.opacity(0.28), lineWidth: 0.6)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: max(7, 8 * u), weight: .bold))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .rotationEffect(.degrees(ui.drawerOpen ? 180 : 0))
+            }
+            .frame(width: max(30, 34 * u), height: max(15, 17 * u))
+        }
+        .buttonStyle(.plain)
+        .offset(y: discR + max(3, 4 * u))
+        .opacity(hovering || ui.drawerOpen ? 1 : 0.45)
+        .help(ui.drawerOpen ? "Hide tasks" : "Show tasks (⌃⌥⌘T)")
+        .accessibilityLabel("Toggle task list")
     }
 }
 

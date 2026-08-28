@@ -10,7 +10,8 @@ let store = UserDefaults(suiteName: suite)!
 
 let prefs = Prefs(defaults: store)
 let stats = Stats(defaults: store)
-let engine = TimerEngine(prefs: prefs, stats: stats)
+let tasks = TaskStore(defaults: store)
+let engine = TimerEngine(prefs: prefs, stats: stats, tasks: tasks)
 
 prefs.autoAdvance = true
 prefs.soundEnabled = false
@@ -174,6 +175,156 @@ let offGrab = ResizeMath.side(topLeft: tl, grabOffset: off,
                               mouse: CGPoint(x: centre.x + off.x, y: centre.y + off.y),
                               gripFraction: k)
 check("off-centre grab does not teleport", abs(offGrab - startSide) < 0.01, "got \(offGrab)")
+
+print("task list basics")
+engine.resetAll()
+check("empty title rejected", tasks.add(title: "   ", minutes: 25) == nil)
+let specTask = tasks.add(title: "  Write the spec  ", minutes: 45)!
+check("title trimmed", specTask.title == "Write the spec")
+let prTask = tasks.add(title: "Review the PR", minutes: 25)!
+check("newest first", tasks.items.first?.id == prTask.id)
+check("two tasks", tasks.items.count == 2)
+
+tasks.toggleDone(prTask.id)
+check("completed sort to the bottom", tasks.ordered.last?.id == prTask.id)
+check("pending count excludes done", tasks.pendingCount == 1)
+tasks.toggleDone(prTask.id)
+
+print("active task drives the focus length")
+check("no active task uses the global duration",
+      engine.duration(for: .focus) == prefs.focusMinutes * 60,
+      "got \(engine.duration(for: .focus))")
+tasks.activate(specTask.id)
+check("active task overrides it", engine.duration(for: .focus) == 45 * 60,
+      "got \(engine.duration(for: .focus))")
+check("breaks are unaffected", engine.duration(for: .shortBreak) == prefs.shortMinutes * 60)
+check("headline is the task", engine.headline == "Write the spec")
+check("headline flagged as a task", engine.headlineIsTask)
+tasks.activate(nil)
+RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+check("headline falls back to the phase", engine.headline == "FOCUS")
+
+print("focus(on:) starts the task immediately")
+engine.resetAll()
+engine.focus(on: specTask.id)
+check("switched to focus", engine.phase == .focus)
+check("running", engine.isRunning)
+check("sized from the task", engine.phaseDuration == 45 * 60,
+      "got \(engine.phaseDuration)")
+check("active id set", tasks.activeID == specTask.id)
+engine.pause()
+
+print("a paused countdown survives unrelated edits")
+// The bug this guards: retargeting on every observable change would throw away
+// a paused countdown just because some other task got added or renamed.
+engine.resetAll()
+tasks.activate(nil)
+RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+engine.start()
+RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+engine.pause()
+let paused = engine.remaining
+_ = tasks.add(title: "Something else entirely", minutes: 90)
+tasks.setTitle(specTask.id, "Write the spec, revised")
+RunLoop.main.run(until: Date().addingTimeInterval(0.25))
+check("paused countdown untouched by unrelated edits", engine.remaining == paused,
+      "was \(paused), now \(engine.remaining)")
+
+print("but a real duration change still retargets")
+tasks.activate(specTask.id)
+RunLoop.main.run(until: Date().addingTimeInterval(0.25))
+check("activating a task retargets while idle", engine.remaining == 45 * 60,
+      "got \(engine.remaining)")
+tasks.setMinutes(specTask.id, 30)
+RunLoop.main.run(until: Date().addingTimeInterval(0.25))
+check("editing the active task's length retargets", engine.remaining == 30 * 60,
+      "got \(engine.remaining)")
+
+print("completing a session credits the task")
+prefs.autoAdvance = false
+tasks.setMinutes(specTask.id, 0.05)          // 3 seconds
+tasks.activate(specTask.id)
+RunLoop.main.run(until: Date().addingTimeInterval(0.25))
+let statsBefore = stats.todaySessions
+engine.reset()
+engine.start()
+RunLoop.main.run(until: Date().addingTimeInterval(4))
+let credited = tasks.items.first { $0.id == specTask.id }!
+check("session counted on the task", credited.sessions == 1, "got \(credited.sessions)")
+check("minutes accumulated from the phase length",
+      abs(credited.accumulated - 0.05) < 0.001, "got \(credited.accumulated)")
+check("daily stats also credited", stats.todaySessions == statsBefore + 1)
+check("moved to a break", engine.phase == .shortBreak)
+prefs.autoAdvance = true
+
+print("active task lifecycle")
+tasks.activate(specTask.id)
+tasks.toggleDone(specTask.id)
+check("completing the active task clears it", tasks.activeID == nil)
+tasks.toggleDone(specTask.id)
+tasks.activate(specTask.id)
+tasks.remove(specTask.id)
+check("deleting the active task clears it", tasks.activeID == nil)
+check("removed from the list", !tasks.items.contains { $0.id == specTask.id })
+
+print("tasks persist")
+let taskSuite = "dev.local.pomodoro.tests.tasks"
+UserDefaults.standard.removePersistentDomain(forName: taskSuite)
+let taskStore = UserDefaults(suiteName: taskSuite)!
+let writer2 = TaskStore(defaults: taskStore)
+let saved = writer2.add(title: "Persisted", minutes: 40)!
+writer2.activate(saved.id)
+writer2.creditActive(minutes: 40)
+let reader2 = TaskStore(defaults: taskStore)
+check("items persist", reader2.items.first?.title == "Persisted")
+check("duration persists", reader2.items.first?.minutes == 40)
+check("credit persists", reader2.items.first?.accumulated == 40)
+check("active id persists", reader2.activeID == saved.id)
+writer2.remove(saved.id)
+let reader3 = TaskStore(defaults: taskStore)
+check("a stale active id is dropped on load", reader3.activeID == nil)
+UserDefaults.standard.removePersistentDomain(forName: taskSuite)
+
+print("drawer placement")
+let screen = CGRect(x: 0, y: 0, width: 1470, height: 900)
+let dw: CGFloat = 320, dh: CGFloat = 250, mg: CGFloat = 23, gp: CGFloat = 6
+
+let midDial = CGRect(x: 600, y: 500, width: 260, height: 260)
+let below = DrawerLayout.frame(dial: midDial, screen: screen, width: dw, height: dh,
+                               margin: mg, gap: gp)
+check("centred on the dial", abs(below.midX - midDial.midX) < 0.01,
+      "\(below.midX) vs \(midDial.midX)")
+check("hangs below the visible disc", below.maxY == midDial.minY + mg - gp,
+      "got \(below.maxY)")
+
+// Parked at the bottom there is no room underneath, so it must flip.
+let lowDial = CGRect(x: 600, y: 4, width: 260, height: 260)
+let flipped = DrawerLayout.frame(dial: lowDial, screen: screen, width: dw, height: dh,
+                                 margin: mg, gap: gp)
+check("flips above when there is no room below", flipped.minY > lowDial.minY,
+      "drawer y \(flipped.minY) vs dial y \(lowDial.minY)")
+check("stays on screen when flipped",
+      flipped.maxY <= screen.maxY - 8 + 0.01 && flipped.minY >= screen.minY - 0.01,
+      "got \(flipped)")
+
+// Dial hard against the right edge: the wider drawer must not hang off.
+let edgeDial = CGRect(x: 1370, y: 500, width: 100, height: 100)
+let clamped = DrawerLayout.frame(dial: edgeDial, screen: screen, width: dw, height: dh,
+                                 margin: mg, gap: gp)
+check("clamped inside the right edge", clamped.maxX <= screen.maxX - 8 + 0.01,
+      "got \(clamped.maxX)")
+let leftDial = CGRect(x: 0, y: 500, width: 100, height: 100)
+let clampedL = DrawerLayout.frame(dial: leftDial, screen: screen, width: dw, height: dh,
+                                  margin: mg, gap: gp)
+check("clamped inside the left edge", clampedL.minX >= screen.minX + 8 - 0.01,
+      "got \(clampedL.minX)")
+
+print("drawer height tracks the task count")
+check("empty list still has a usable height", TaskDrawerView.height(for: 0) > 100)
+check("grows with rows",
+      TaskDrawerView.height(for: 3) > TaskDrawerView.height(for: 1))
+check("caps so it cannot run off screen",
+      TaskDrawerView.height(for: 50) == TaskDrawerView.height(for: TaskDrawerView.maxRows))
 
 UserDefaults.standard.removePersistentDomain(forName: suite)
 print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILED")

@@ -25,6 +25,9 @@ sits above your work and counts down.
 - **Resizable** from 130 to 420pt by dragging the corner grip, and everything —
   stroke weight, digits, controls — scales with it.
 - **Six themes**, adjustable opacity, and a fade-when-idle mode.
+- **A task list built into the timer.** A task carries its own session length,
+  so starting one means "focus on this for that long" — the dial shows what
+  you're on instead of a generic `FOCUS`, and the time is banked against it.
 - **Global shortcuts** that work from any app — and need no Accessibility
   permission, because they use `RegisterEventHotKey` rather than a keyboard
   event monitor.
@@ -41,10 +44,34 @@ at the bottom-right. There is also a menu bar item with the same controls.
 | `⌃⌥⌘P` | Start / pause |
 | `⌃⌥⌘K` | Skip to next phase |
 | `⌃⌥⌘R` | Restart the current phase |
+| `⌃⌥⌘T` | Show / hide the task list |
 
 `⌃⌥⌘` is used because plainer combinations collide with system defaults — `⌃Space`
 and `⌃⌥Space` are input-source switching. Settings shows a warning next to any
 shortcut another app already owns. They can be turned off entirely.
+
+## Tasks
+
+<img src="docs/tasks.png" width="420" alt="The dial showing an active task, with the task drawer open beneath it">
+
+Pull the `⌄` tab under the dial (or press `⌃⌥⌘T`) and the list drops out.
+
+- **Type and press `↩`** to add a task. The field stays focused, so you can
+  reel off several in a row.
+- **Click any row to start it.** The drawer closes, the timer restarts at that
+  task's length, and the dial shows its name.
+- Each task carries **its own session length**, chosen from the pill on its row.
+  While a task is active it overrides the global focus duration — breaks are
+  unaffected, and the break returns you to the same task.
+- Completed sessions and minutes are **banked against the task**, so Settings ›
+  Stats can tell you where the time actually went.
+
+Quick-add lives in the drawer rather than only in Settings on purpose: if
+jotting a task meant opening a settings window, nobody would use the feature.
+Settings › Tasks is the fuller surface — rename, reorder, retime, delete.
+
+The drawer never takes focus from whatever you're working in until you click
+into the text field, which is the one moment you actually want it to.
 
 ## Install
 
@@ -77,7 +104,7 @@ Xcode command line tools are enough — there is no Xcode project, just `swiftc`
 ./build.sh          # produces build/Pomodoro.app
 open build/Pomodoro.app
 
-./test.sh           # 39 tests, no simulator or Xcode project needed
+./test.sh           # 82 tests, no simulator or Xcode project needed
 ./package.sh        # produces build/Pomodoro-<version>.zip for distribution
 ```
 
@@ -125,11 +152,14 @@ bash spike/build.sh
 | Path | What's in it |
 |---|---|
 | [`src/Engine.swift`](src/Engine.swift) | Phase machine, drift-free countdown |
+| [`src/Tasks.swift`](src/Tasks.swift) | Task model and store |
+| [`src/TaskDrawer.swift`](src/TaskDrawer.swift) | The drop-down task list |
 | [`src/Prefs.swift`](src/Prefs.swift) | Settings, themes, session stats |
 | [`src/PomodoroView.swift`](src/PomodoroView.swift) | The dial (SwiftUI) |
 | [`src/SettingsView.swift`](src/SettingsView.swift) | Settings window |
 | [`src/ResizeGrip.swift`](src/ResizeGrip.swift) | Corner resize handle (AppKit) |
-| [`src/Geometry.swift`](src/Geometry.swift) | Resize pointer mapping |
+| [`src/HotKeys.swift`](src/HotKeys.swift) | Global shortcuts |
+| [`src/Geometry.swift`](src/Geometry.swift) | Resize pointer mapping, drawer placement |
 | [`src/main.swift`](src/main.swift) | Panel, click-through, snapping, menu bar |
 | [`tools/main.swift`](tools/main.swift) | Offscreen renderer for the screenshots |
 | [`tests/main.swift`](tests/main.swift) | Test suite |

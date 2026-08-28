@@ -100,15 +100,24 @@ sPrefs.themeID = "ember"
 // instead — cacheDisplay works on our own views without any permission.
 NSApp.setActivationPolicy(.accessory)
 
+let sTasks = TaskStore(defaults: sStore)
+_ = sTasks.add(title: "Ship the release notes", minutes: 25)
+let sSpec = sTasks.add(title: "Write the spec", minutes: 45)!
+sTasks.activate(sSpec.id)
+sTasks.creditActive(minutes: 90)
+let sHotKeys = HotKeyManager()
+
 let tabs = HStack(alignment: .top, spacing: 0) {
     TimerTab(prefs: sPrefs).frame(width: 460)
+    TasksTab(tasks: sTasks, prefs: sPrefs, engine: sEngine).frame(width: 460)
     AppearanceTab(prefs: sPrefs).frame(width: 460)
-    BehaviorTab(prefs: sPrefs).frame(width: 460)
-    StatsTab(prefs: sPrefs, stats: sStats, engine: sEngine).frame(width: 460)
+    BehaviorTab(prefs: sPrefs, hotKeys: sHotKeys).frame(width: 460)
+    StatsTab(prefs: sPrefs, stats: sStats, engine: sEngine, tasks: sTasks).frame(width: 460)
 }
 
-let win = NSWindow(contentRect: NSRect(x: -6000, y: 0, width: 1840, height: 540),
+let win = NSWindow(contentRect: NSRect(x: -6000, y: 0, width: 2300, height: 540),
                    styleMask: [.titled], backing: .buffered, defer: false)
+win.appearance = NSAppearance(named: .darkAqua)
 win.contentView = NSHostingView(rootView: tabs)
 win.orderFront(nil)
 RunLoop.main.run(until: Date().addingTimeInterval(1.5))   // let SwiftUI settle
@@ -144,6 +153,7 @@ gContainer.addSubview(gGrip, positioned: .above, relativeTo: gHost)
 let gWin = NSWindow(contentRect: NSRect(x: -6000, y: 0, width: gSide, height: gSide),
                     styleMask: [.borderless], backing: .buffered, defer: false)
 gWin.backgroundColor = NSColor(calibratedWhite: 0.16, alpha: 1)
+gWin.appearance = NSAppearance(named: .darkAqua)
 gWin.contentView = gContainer
 gWin.orderFront(nil)
 RunLoop.main.run(until: Date().addingTimeInterval(1.2))
@@ -156,3 +166,70 @@ if let cv = gWin.contentView,
         print("wrote build/grip.png — \(rep.pixelsWide)x\(rep.pixelsHigh)px")
     }
 }
+
+
+// MARK: - Task drawer + dial together
+//
+// Rendered through a real window rather than ImageRenderer: the drawer contains
+// a TextField and Menus, which are AppKit-backed and render blank offscreen.
+
+let tSuite = "dev.local.pomodoro.preview.tasks"
+UserDefaults.standard.removePersistentDomain(forName: tSuite)
+let tStore = UserDefaults(suiteName: tSuite)!
+
+let tPrefs = Prefs(defaults: tStore)
+tPrefs.size = 260
+tPrefs.themeID = "ember"
+let tTasks = TaskStore(defaults: tStore)
+let tStats = Stats(defaults: tStore)
+
+let done = tTasks.add(title: "Stand-up notes", minutes: 15)!
+_ = tTasks.add(title: "Review the pull request", minutes: 25)
+_ = tTasks.add(title: "Sketch the onboarding flow", minutes: 50)
+let spec = tTasks.add(title: "Write the spec", minutes: 45)!
+tTasks.toggleDone(done.id)
+tTasks.activate(spec.id)
+tTasks.creditActive(minutes: 90)
+
+let tEngine = TimerEngine(prefs: tPrefs, stats: tStats, tasks: tTasks)
+let tUI = UIState()
+tUI.drawerOpen = true
+tEngine.focus(on: spec.id)
+
+let dialSide: CGFloat = 260
+let drawerH = TaskDrawerView.height(for: tTasks.items.count)
+let compW: CGFloat = 420
+let compH = dialSide + 6 + drawerH + 32
+
+let dialHost = NSHostingView(rootView:
+    PomodoroView(engine: tEngine, prefs: tPrefs, ui: tUI, previewHover: true))
+dialHost.frame = NSRect(x: (compW - dialSide) / 2, y: compH - dialSide - 16,
+                        width: dialSide, height: dialSide)
+
+let drawerHost = NSHostingView(rootView:
+    TaskDrawerView(tasks: tTasks, prefs: tPrefs, engine: tEngine))
+drawerHost.frame = NSRect(x: (compW - TaskDrawerView.width) / 2, y: 16,
+                          width: TaskDrawerView.width, height: drawerH)
+
+let compContainer = NSView(frame: NSRect(x: 0, y: 0, width: compW, height: compH))
+compContainer.wantsLayer = true
+compContainer.layer?.backgroundColor = NSColor(calibratedWhite: 0.13, alpha: 1).cgColor
+compContainer.addSubview(dialHost)
+compContainer.addSubview(drawerHost)
+
+let compWin = NSWindow(contentRect: NSRect(x: -6000, y: 0, width: compW, height: compH),
+                       styleMask: [.borderless], backing: .buffered, defer: false)
+compWin.appearance = NSAppearance(named: .darkAqua)
+compWin.contentView = compContainer
+compWin.orderFront(nil)
+RunLoop.main.run(until: Date().addingTimeInterval(2.0))
+
+if let cv = compWin.contentView,
+   let rep = cv.bitmapImageRepForCachingDisplay(in: cv.bounds) {
+    cv.cacheDisplay(in: cv.bounds, to: rep)
+    if let data = rep.representation(using: .png, properties: [:]) {
+        try data.write(to: URL(fileURLWithPath: "build/tasks.png"))
+        print("wrote build/tasks.png — \(rep.pixelsWide)x\(rep.pixelsHigh)px")
+    }
+}
+UserDefaults.standard.removePersistentDomain(forName: tSuite)

@@ -28,3 +28,32 @@ enum ResizeMath {
                 y: topLeft.y - side * gripFraction)
     }
 }
+
+enum DrawerLayout {
+    /// Where the task drawer sits relative to the dial.
+    ///
+    /// Normally centred just under the disc. The dial window carries a
+    /// transparent shadow margin, so `margin` is subtracted to hang the drawer
+    /// off the *visible* edge rather than the invisible window bound. If there
+    /// isn't room below — dial parked at the bottom of the screen — it flips
+    /// above instead, then clamps into the visible frame either way.
+    ///
+    /// Screen coordinates, y increasing upward.
+    static func frame(dial: CGRect,
+                      screen: CGRect,
+                      width: CGFloat,
+                      height: CGFloat,
+                      margin: CGFloat,
+                      gap: CGFloat) -> CGRect {
+        var x = dial.midX - width / 2
+        var y = dial.minY + margin - gap - height
+
+        if y < screen.minY + 8 {
+            y = dial.maxY - margin + gap          // flip above the dial
+        }
+
+        x = min(max(x, screen.minX + 8), max(screen.minX + 8, screen.maxX - width - 8))
+        y = min(max(y, screen.minY + 8), max(screen.minY + 8, screen.maxY - height - 8))
+        return CGRect(x: x, y: y, width: width, height: height)
+    }
+}

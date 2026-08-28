@@ -5,14 +5,17 @@ struct SettingsView: View {
     @ObservedObject var stats: Stats
     @ObservedObject var engine: TimerEngine
     @ObservedObject var hotKeys: HotKeyManager
+    @ObservedObject var tasks: TaskStore
 
     var body: some View {
         TabView {
             TimerTab(prefs: prefs).tabItem { Label("Timer", systemImage: "timer") }
+            TasksTab(tasks: tasks, prefs: prefs, engine: engine)
+                .tabItem { Label("Tasks", systemImage: "checklist") }
             AppearanceTab(prefs: prefs).tabItem { Label("Appearance", systemImage: "paintbrush") }
             BehaviorTab(prefs: prefs, hotKeys: hotKeys)
                 .tabItem { Label("Behavior", systemImage: "slider.horizontal.3") }
-            StatsTab(prefs: prefs, stats: stats, engine: engine)
+            StatsTab(prefs: prefs, stats: stats, engine: engine, tasks: tasks)
                 .tabItem { Label("Stats", systemImage: "chart.bar") }
         }
         .frame(width: 460, height: 540)
@@ -212,6 +215,7 @@ struct StatsTab: View {
     @ObservedObject var prefs: Prefs
     @ObservedObject var stats: Stats
     @ObservedObject var engine: TimerEngine
+    @ObservedObject var tasks: TaskStore
 
     var body: some View {
         Form {
@@ -246,6 +250,21 @@ struct StatsTab: View {
                 .frame(height: 92)
                 .padding(.vertical, 4)
             } header: { Text("Last 14 days") }
+
+            if !tasks.topByTime(5).isEmpty {
+                Section {
+                    ForEach(tasks.topByTime(5)) { item in
+                        HStack {
+                            Text(item.title).lineLimit(1)
+                            Spacer()
+                            Text("\(item.sessions)×")
+                                .font(.caption).foregroundStyle(.secondary)
+                            Text(item.totalLabel)
+                                .monospacedDigit().foregroundStyle(.secondary)
+                        }
+                    }
+                } header: { Text("Where the time went") }
+            }
 
             Section {
                 Button("Reset All Statistics", role: .destructive) { stats.reset() }
@@ -300,5 +319,129 @@ private struct ThemeChip: View {
                 .fill(selected ? Color.accentColor.opacity(0.16) : Color.clear))
         }
         .buttonStyle(.plain)
+    }
+}
+
+
+// MARK: - Tasks
+
+struct TasksTab: View {
+    @ObservedObject var tasks: TaskStore
+    @ObservedObject var prefs: Prefs
+    @ObservedObject var engine: TimerEngine
+
+    @State private var draft = ""
+    @State private var draftMinutes: Double = 25
+
+    /// A task's length may not be one of the presets (it can be seeded from a
+    /// custom focus duration), and a Picker with no matching tag renders blank.
+    private func choices(including m: Double) -> [Double] {
+        TaskDuration.choices.contains(m)
+            ? TaskDuration.choices
+            : (TaskDuration.choices + [m]).sorted()
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                TextField("New task", text: $draft)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit(add)
+                Picker("", selection: $draftMinutes) {
+                    ForEach(choices(including: draftMinutes), id: \.self) {
+                        Text(TaskDuration.label($0)).tag($0)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 78)
+                Button("Add", action: add)
+                    .disabled(draft.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+            .padding(12)
+
+            Divider()
+
+            if tasks.items.isEmpty {
+                VStack(spacing: 4) {
+                    Text("No tasks yet").foregroundStyle(.secondary)
+                    Text("Add one above, or use the ⌄ tab under the timer.")
+                        .font(.caption).foregroundStyle(.tertiary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                List {
+                    ForEach(tasks.items) { item in row(item) }
+                        .onMove { tasks.move(from: $0, to: $1) }
+                }
+                .listStyle(.inset)
+                .scrollContentBackground(.hidden)
+            }
+
+            Divider()
+
+            HStack {
+                Text("\(tasks.pendingCount) of \(tasks.items.count) left")
+                    .font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                if tasks.hasCompleted {
+                    Button("Clear Completed") { tasks.clearCompleted() }
+                }
+            }
+            .padding(12)
+        }
+        // Painted explicitly. The other tabs get a background free from
+        // .formStyle(.grouped); a bare VStack does not, and an unpainted
+        // container falls through to whatever is behind it.
+        .background(Color(nsColor: .windowBackgroundColor))
+        .onAppear { draftMinutes = prefs.focusMinutes }
+    }
+
+    private func add() {
+        tasks.add(title: draft, minutes: draftMinutes)
+        draft = ""
+    }
+
+    @ViewBuilder
+    private func row(_ item: TodoItem) -> some View {
+        HStack(spacing: 8) {
+            Button { tasks.toggleDone(item.id) } label: {
+                Image(systemName: item.done ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(item.done ? Color.accentColor : .secondary)
+            }
+            .buttonStyle(.plain)
+
+            TextField("", text: Binding(get: { item.title },
+                                        set: { tasks.setTitle(item.id, $0) }))
+                .textFieldStyle(.plain)
+                .strikethrough(item.done, color: .secondary)
+                .foregroundStyle(item.done ? .secondary : .primary)
+
+            if item.sessions > 0 {
+                Text("\(item.sessions)×").font(.caption).foregroundStyle(.secondary)
+                Text(item.totalLabel)
+                    .font(.caption).monospacedDigit().foregroundStyle(.secondary)
+            }
+
+            Picker("", selection: Binding(get: { item.minutes },
+                                          set: { tasks.setMinutes(item.id, $0) })) {
+                ForEach(choices(including: item.minutes), id: \.self) {
+                    Text(TaskDuration.label($0)).tag($0)
+                }
+            }
+            .labelsHidden()
+            .frame(width: 78)
+
+            Button { tasks.remove(item.id) } label: {
+                Image(systemName: "trash").foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Delete")
+        }
+        .contextMenu {
+            Button("Focus on This Now") { engine.focus(on: item.id) }
+            Button(item.done ? "Mark Not Done" : "Mark Done") { tasks.toggleDone(item.id) }
+            Divider()
+            Button("Delete", role: .destructive) { tasks.remove(item.id) }
+        }
     }
 }

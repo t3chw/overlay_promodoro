@@ -36,38 +36,49 @@ final class TimerEngine: ObservableObject {
     /// Bumped on every phase change so the view can play a pulse.
     @Published private(set) var pulse = 0
 
+    /// The length this phase was started with — the authority for progress and
+    /// for crediting. Reading `duration(for:)` live would make the ring jump if
+    /// a duration were edited mid-session, and would credit a task with time it
+    /// never actually ran.
+    @Published private(set) var phaseDuration: TimeInterval = 0
+
     private let prefs: Prefs
     private let stats: Stats
+    private let tasks: TaskStore
     private var endDate: Date?
     private var ticker: Timer?
     private var bag = Set<AnyCancellable>()
 
     var onPhaseChange: ((Phase) -> Void)?
 
-    init(prefs: Prefs = .shared, stats: Stats = .shared) {
+    init(prefs: Prefs = .shared, stats: Stats = .shared, tasks: TaskStore = .shared) {
         self.prefs = prefs
         self.stats = stats
-        remaining = duration(for: .focus)
+        self.tasks = tasks
+        phaseDuration = duration(for: .focus)
+        remaining = phaseDuration
 
-        // Editing a duration in Settings should retarget the current phase
-        // straight away — but only while idle, so it can't yank time out from
-        // under a running session.
-        prefs.$focusMinutes.combineLatest(prefs.$shortMinutes, prefs.$longMinutes)
-            .dropFirst()
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _, _, _ in
-                guard let self, !self.isRunning else { return }
-                self.remaining = self.duration(for: self.phase)
-            }
-            .store(in: &bag)
+        // Settings and task edits should retarget the current phase — but only
+        // when they actually change its length, and only while idle. Blindly
+        // resetting on every edit would throw away a paused countdown just
+        // because an unrelated task got renamed.
+        Publishers.Merge(
+            prefs.objectWillChange.map { _ in () },
+            tasks.objectWillChange.map { _ in () }
+        )
+        .receive(on: DispatchQueue.main)     // @Published fires in willSet
+        .sink { [weak self] in self?.retargetIfDurationChanged() }
+        .store(in: &bag)
     }
 
     // MARK: Derived
 
+    /// The configured length of a phase. A focus phase takes its length from
+    /// the active task when there is one.
     func duration(for phase: Phase) -> TimeInterval {
         let minutes: Double
         switch phase {
-        case .focus:      minutes = prefs.focusMinutes
+        case .focus:      minutes = tasks.active?.minutes ?? prefs.focusMinutes
         case .shortBreak: minutes = prefs.shortMinutes
         case .longBreak:  minutes = prefs.longMinutes
         }
@@ -78,9 +89,8 @@ final class TimerEngine: ObservableObject {
 
     /// 1.0 at the start of a phase, 0.0 at the end — the ring shrinks with it.
     var progress: Double {
-        let total = duration(for: phase)
-        guard total > 0 else { return 0 }
-        return max(0, min(1, remaining / total))
+        guard phaseDuration > 0 else { return 0 }
+        return max(0, min(1, remaining / phaseDuration))
     }
 
     var display: String { Self.format(remaining) }
@@ -91,8 +101,19 @@ final class TimerEngine: ObservableObject {
         return String(format: "%02d:%02d", s / 60, s % 60)
     }
 
-    /// Filled dots in the current set.
     var dotsFilled: Int { completedFocus % sessionsBeforeLongBreak }
+
+    /// What the dial should print above the clock: the task you're on during a
+    /// focus phase, otherwise the phase name.
+    var headline: String {
+        if phase == .focus, let task = tasks.active { return task.title }
+        return phase.title
+    }
+
+    var headlineIsTask: Bool { phase == .focus && tasks.active != nil }
+
+    /// Full title for tooltips, whatever phase we're in — the dial truncates.
+    var activeTaskTitle: String? { tasks.active?.title }
 
     /// Sub-tick-accurate remaining time. The 10 Hz ticker keeps `remaining`
     /// roughly fresh, but the ring redraws at 60 fps and would visibly
@@ -108,7 +129,7 @@ final class TimerEngine: ObservableObject {
 
     func start() {
         guard !isRunning else { return }
-        if remaining <= 0 { remaining = duration(for: phase) }
+        if remaining <= 0 { remaining = phaseDuration }
         endDate = Date().addingTimeInterval(remaining)
         isRunning = true
         startTicker()
@@ -127,7 +148,7 @@ final class TimerEngine: ObservableObject {
         stopTicker()
         isRunning = false
         endDate = nil
-        remaining = duration(for: phase)
+        remaining = phaseDuration
     }
 
     /// Jump to the next phase without completing this one — no credit given.
@@ -140,7 +161,25 @@ final class TimerEngine: ObservableObject {
         endDate = nil
         completedFocus = 0
         phase = .focus
-        remaining = duration(for: .focus)
+        phaseDuration = duration(for: .focus)
+        remaining = phaseDuration
+    }
+
+    /// Make a task active and begin focusing on it immediately, whatever phase
+    /// we were in — picking a task *is* the instruction to start working.
+    func focus(on id: UUID) {
+        stopTicker()
+        tasks.activate(id)
+        phase = .focus
+        phaseDuration = duration(for: .focus)
+        remaining = phaseDuration
+        isRunning = false
+        start()
+    }
+
+    /// Drop the active task without disturbing the countdown.
+    func clearActiveTask() {
+        tasks.activate(nil)
     }
 
     // MARK: Ticking
@@ -170,6 +209,16 @@ final class TimerEngine: ObservableObject {
         }
     }
 
+    // MARK: Retargeting
+
+    private func retargetIfDurationChanged() {
+        guard !isRunning else { return }
+        let d = duration(for: phase)
+        guard abs(d - phaseDuration) > 0.001 else { return }
+        phaseDuration = d
+        remaining = d
+    }
+
     // MARK: Phase machine
 
     private func advance(credit: Bool) {
@@ -179,7 +228,11 @@ final class TimerEngine: ObservableObject {
         if phase == .focus {
             if credit {
                 completedFocus += 1
-                stats.record(minutes: prefs.focusMinutes)
+                // Credit the length this phase actually ran, not whatever the
+                // settings happen to say now.
+                let minutes = phaseDuration / 60
+                stats.record(minutes: minutes)
+                tasks.creditActive(minutes: minutes)
             }
             let earnedLong = credit && completedFocus % sessionsBeforeLongBreak == 0
             phase = earnedLong ? .longBreak : .shortBreak
@@ -187,7 +240,8 @@ final class TimerEngine: ObservableObject {
             phase = .focus
         }
 
-        remaining = duration(for: phase)
+        phaseDuration = duration(for: phase)
+        remaining = phaseDuration
         pulse &+= 1
         onPhaseChange?(phase)
 
