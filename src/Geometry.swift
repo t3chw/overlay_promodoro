@@ -57,3 +57,18 @@ enum DrawerLayout {
         return CGRect(x: x, y: y, width: width, height: height)
     }
 }
+
+enum ScreenFit {
+    /// Pull a window frame fully inside a visible screen frame.
+    ///
+    /// Restoring a saved position only checks that the rect *intersects* a
+    /// screen, so a window left mostly off the edge — or stranded by a display
+    /// being unplugged or re-resolutioned — still passes that check. This is
+    /// the stricter version: entirely on screen, or moved until it is.
+    static func clamped(_ frame: CGRect, into visible: CGRect) -> CGRect {
+        var o = frame.origin
+        o.x = min(max(o.x, visible.minX), max(visible.minX, visible.maxX - frame.width))
+        o.y = min(max(o.y, visible.minY), max(visible.minY, visible.maxY - frame.height))
+        return CGRect(origin: o, size: frame.size)
+    }
+}

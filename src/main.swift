@@ -20,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var drawerDismissMonitors: [Any] = []
     private var statusItem: NSStatusItem!
     private let hotKeys = HotKeyManager()
+    private var hotKeysActive = false
 
     private var bag = Set<AnyCancellable>()
     private var titleTimer: Timer?
@@ -139,6 +140,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NotificationCenter.default.addObserver(
             self, selector: #selector(panelMoved),
             name: NSWindow.didMoveNotification, object: panel)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(screensChanged),
+            name: NSApplication.didChangeScreenParametersNotification, object: nil)
+        ensureOnScreen()
     }
 
     /// Restore the last position, but only if it still lands on a screen —
@@ -156,6 +161,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard let vf = NSScreen.main?.visibleFrame else { return NSPoint(x: 60, y: 60) }
         let side = CGFloat(prefs.size)
         return NSPoint(x: vf.maxX - side - 24, y: vf.maxY - side - 16)
+    }
+
+    /// Displays can be unplugged or re-resolutioned while we're parked on them.
+    @objc private func screensChanged() {
+        ensureOnScreen()
+        positionDrawer()
+        panel.orderFrontRegardless()
+    }
+
+    /// Pull the dial fully back into a visible frame. `restoredOrigin` only
+    /// checks that the saved rect *intersects* a screen, so a mostly-offscreen
+    /// window passes it.
+    private func ensureOnScreen() {
+        let f = panel.frame
+        guard let screen = NSScreen.screens.first(where: { $0.visibleFrame.intersects(f) })
+                ?? NSScreen.main else { return }
+        let fitted = ScreenFit.clamped(f, into: screen.visibleFrame)
+        guard fitted.origin != f.origin else { return }
+        isSnapping = true
+        panel.setFrameOrigin(fitted.origin)
+        isSnapping = false
+        prefs.origin = panel.frame.origin
     }
 
     @objc private func panelMoved() {
@@ -248,6 +275,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func applyHotKeys() {
+        hotKeysActive = prefs.hotKeysEnabled
         guard prefs.hotKeysEnabled else { hotKeys.disable(); return }
         hotKeys.enable([
             1: { [weak self] in self?.engine.toggle() },
@@ -258,12 +286,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func applyPrefs() {
-        if prefs.hotKeysEnabled != !hotKeys.registered.isEmpty { applyHotKeys() }
+        if prefs.hotKeysEnabled != hotKeysActive { applyHotKeys() }
         applySize()
         applyAlpha()
         panel.level = prefs.alwaysOnTop ? .floating : .normal
         drawer?.level = panel.level
-        drawer?.alphaValue = prefs.opacity
         if !prefs.clickThrough { panel.ignoresMouseEvents = false }
         if !isResizing { panel.orderFrontRegardless() }
     }
@@ -359,7 +386,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         p.worksWhenModal = true
         p.animationBehavior = .none
         p.isReleasedWhenClosed = false
-        p.alphaValue = prefs.opacity
+        // Deliberately not dimmed by the opacity setting: this is a surface you
+        // read and type into, unlike the dial you glance at.
+        p.alphaValue = 1
 
         p.contentView = NSHostingView(rootView: TaskDrawerView(
             tasks: tasks, prefs: prefs, engine: engine,
@@ -387,8 +416,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         drawer?.orderOut(nil)
         drawer = nil
         ui.drawerOpen = false
-        // Give focus back to whatever you were working in.
-        NSApp.deactivate()
+        // Hand focus back to whatever you were working in — unless our own
+        // Settings window is open, in which case deactivating would yank it away.
+        if settingsWindow?.isVisible != true { NSApp.deactivate() }
     }
 
     /// Sits just under the disc, centred on it — and flips above when the dial
@@ -432,7 +462,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             matching: [.leftMouseDown, .rightMouseDown, .keyDown],
             handler: { [weak self] event in
                 if event.type == .keyDown {
-                    if event.keyCode == 53 { self?.closeDrawer(); return nil }  // esc
+                    // Only claim escape when the drawer itself has focus, or it
+                    // would hijack the key from the Settings window.
+                    if event.keyCode == 53, self?.drawer?.isKeyWindow == true {
+                        self?.closeDrawer()
+                        return nil
+                    }
                     return event
                 }
                 self?.closeIfClickedOutside()

@@ -89,7 +89,7 @@ struct PomodoroView: View {
             cornerButtons
             drawerTab
         }
-        .help(engine.activeTaskTitle ?? "")
+        .help(engine.activeTaskTitle ?? engine.phase.title)
         .animation(.easeInOut(duration: 0.35), value: engine.phase)
         .animation(.easeInOut(duration: 0.2), value: prefs.themeID)
     }

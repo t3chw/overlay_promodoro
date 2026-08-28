@@ -109,7 +109,7 @@ Xcode command line tools are enough — there is no Xcode project, just `swiftc`
 ./build.sh          # produces build/Pomodoro.app
 open build/Pomodoro.app
 
-./test.sh           # 82 tests, no simulator or Xcode project needed
+./test.sh           # 87 tests, no simulator or Xcode project needed
 ./package.sh        # produces build/Pomodoro-<version>.zip for distribution
 ```
 

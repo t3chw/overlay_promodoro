@@ -122,7 +122,7 @@ struct TaskDrawerView: View {
                     Text("No tasks yet")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(.white.opacity(0.55))
-                    Text("Type above and press ↩")
+                    Text("Type above, then ↩ or +")
                         .font(.system(size: 10.5))
                         .foregroundStyle(.white.opacity(0.32))
                 }
@@ -268,7 +268,7 @@ private struct DurationMenu: View {
                 .foregroundStyle(.white.opacity(0.7))
                 .padding(.horizontal, 7)
                 .padding(.vertical, 2.5)
-                .background(Capsule().fill(Color.white.opacity(0.12)))
+                .background(Capsule().fill(Color.white.opacity(0.16)))
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)

@@ -28,9 +28,14 @@ final class DialSpec: Identifiable {
         let p = Prefs(defaults: UserDefaults(suiteName: "preview.\(size).\(hover)")!)
         p.size = size
         p.themeID = theme
-        p.focusMinutes = 1              // 60s phase
+        p.focusMinutes = 1              // unused once a task is active
         self.prefs = p
-        self.engine = TimerEngine(prefs: p, stats: Stats(defaults: store))
+        // Every dial carries an active task, so the size sweep also proves the
+        // task name survives down to the smallest dial.
+        let store2 = TaskStore(defaults: UserDefaults(suiteName: "preview.t.\(size).\(hover)")!)
+        let t = store2.add(title: "Write the spec", minutes: 45)!
+        store2.activate(t.id)
+        self.engine = TimerEngine(prefs: p, stats: Stats(defaults: store), tasks: store2)
     }
 }
 

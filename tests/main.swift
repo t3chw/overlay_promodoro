@@ -326,6 +326,32 @@ check("grows with rows",
 check("caps so it cannot run off screen",
       TaskDrawerView.height(for: 50) == TaskDrawerView.height(for: TaskDrawerView.maxRows))
 
+print("windows are pulled back on screen")
+let visible = CGRect(x: 0, y: 0, width: 1470, height: 900)
+let inside = CGRect(x: 400, y: 300, width: 200, height: 200)
+check("an on-screen window is left alone",
+      ScreenFit.clamped(inside, into: visible) == inside)
+// A window hanging off the right edge intersects the screen, so the saved-origin
+// check passes it — this is the stricter pass that actually rescues it.
+let hangingRight = CGRect(x: 1400, y: 300, width: 200, height: 200)
+check("pulled in from the right",
+      ScreenFit.clamped(hangingRight, into: visible).maxX == visible.maxX,
+      "got \(ScreenFit.clamped(hangingRight, into: visible))")
+let hangingLow = CGRect(x: 400, y: -150, width: 200, height: 200)
+check("pulled up from below",
+      ScreenFit.clamped(hangingLow, into: visible).minY == visible.minY,
+      "got \(ScreenFit.clamped(hangingLow, into: visible))")
+let stranded = CGRect(x: 4000, y: 4000, width: 200, height: 200)
+let rescued = ScreenFit.clamped(stranded, into: visible)
+check("a fully stranded window comes back",
+      visible.contains(rescued), "got \(rescued)")
+// Never move a window that is larger than the screen off its own top-left.
+let huge = CGRect(x: -50, y: -50, width: 2000, height: 2000)
+let hugeFit = ScreenFit.clamped(huge, into: visible)
+check("an oversized window pins to the origin rather than flipping",
+      hugeFit.origin.x == visible.minX && hugeFit.origin.y == visible.minY,
+      "got \(hugeFit)")
+
 UserDefaults.standard.removePersistentDomain(forName: suite)
 print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)
