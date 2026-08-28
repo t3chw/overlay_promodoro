@@ -132,12 +132,12 @@ struct PomodoroView: View {
             // Glow pass underneath the real stroke; it's the glow that fades
             // when paused, not the colour — dimming the colour looked muddy.
             Circle()
-                .trim(from: 0, to: progress)
+                .trim(from: 1 - progress, to: 1)
                 .stroke(gradient, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .blur(radius: 6 * u)
                 .opacity(engine.isRunning ? 0.55 : 0.12)
             Circle()
-                .trim(from: 0, to: progress)
+                .trim(from: 1 - progress, to: 1)
                 .stroke(gradient, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .opacity(engine.isRunning ? 1 : 0.9)
         }

@@ -11,35 +11,49 @@ NSApp.setActivationPolicy(.prohibited)
 let store = UserDefaults(suiteName: "dev.local.pomodoro.preview")!
 UserDefaults.standard.removePersistentDomain(forName: "dev.local.pomodoro.preview")
 
-func shot(size: Double, theme: String, bg: Color, hover: Bool, label: String) -> some View {
-    let sPrefs = Prefs(defaults: UserDefaults(suiteName: "preview.\(size).\(hover)")!)
-    sPrefs.size = size
-    sPrefs.themeID = theme
-    sPrefs.focusMinutes = 20                  // arc lands mid-sweep after the wait
-    let engine = TimerEngine(prefs: sPrefs, stats: Stats(defaults: store))
-    engine.start()
-    return VStack(spacing: 4) {
-        ZStack {
-            bg
-            PomodoroView(engine: engine, prefs: sPrefs, previewHover: hover)
-        }
-        .frame(width: 380, height: 380)
-        Text(label).font(.system(size: 11)).foregroundStyle(.secondary)
+// The engines must be started BEFORE the wait below. Building them inside a
+// ForEach body doesn't work: SwiftUI evaluates that lazily at render time, so
+// every clock would start after the wait and every ring would render full.
+final class DialSpec: Identifiable {
+    let id: String
+    let prefs: Prefs
+    let engine: TimerEngine
+    let size: Double
+    let hover: Bool
+
+    init(size: Double, hover: Bool, theme: String) {
+        self.id = "\(size)-\(hover)"
+        self.size = size
+        self.hover = hover
+        let p = Prefs(defaults: UserDefaults(suiteName: "preview.\(size).\(hover)")!)
+        p.size = size
+        p.themeID = theme
+        p.focusMinutes = 1              // 60s phase
+        self.prefs = p
+        self.engine = TimerEngine(prefs: p, stats: Stats(defaults: store))
     }
 }
 
-let sizes: [Double] = [130, 150, 210, 300]
+let dialSizes: [Double] = [130, 150, 210, 300]
+let specs: [DialSpec] = dialSizes.flatMap { s in
+    [false, true].map { DialSpec(size: s, hover: $0, theme: "ember") }
+}
+specs.forEach { $0.engine.start() }
+
 let sheet = VStack(spacing: 12) {
-    HStack(spacing: 8) {
-        ForEach(sizes, id: \.self) { s in
-            shot(size: s, theme: "ember", bg: Color(hex: 0x2A2A2E), hover: false,
-                 label: "\(Int(s)) pt · idle")
-        }
-    }
-    HStack(spacing: 8) {
-        ForEach(sizes, id: \.self) { s in
-            shot(size: s, theme: "ember", bg: Color(hex: 0x2A2A2E), hover: true,
-                 label: "\(Int(s)) pt · hover")
+    ForEach([false, true], id: \.self) { hover in
+        HStack(spacing: 8) {
+            ForEach(specs.filter { $0.hover == hover }) { spec in
+                VStack(spacing: 4) {
+                    ZStack {
+                        Color(hex: 0x2A2A2E)
+                        PomodoroView(engine: spec.engine, prefs: spec.prefs, previewHover: hover)
+                    }
+                    .frame(width: 380, height: 380)
+                    Text("\(Int(spec.size)) pt · \(hover ? "hover" : "idle")")
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                }
+            }
         }
     }
 }
@@ -47,7 +61,7 @@ let sheet = VStack(spacing: 12) {
 .background(Color(hex: 0x141416))
 
 // Give the running engines a moment so the ring is partly depleted.
-RunLoop.main.run(until: Date().addingTimeInterval(4.2))
+RunLoop.main.run(until: Date().addingTimeInterval(18))   // 60s phase -> ~70% left
 
 // ImageRenderer is main-actor isolated; top-level code already runs on the
 // main thread, so assert that rather than hopping.
