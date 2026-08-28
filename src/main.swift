@@ -16,7 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var host: NSHostingView<PomodoroView>!
     private var grip: ResizeGripView!
     private var settingsWindow: NSWindow?
-    private var drawer: NSPanel?
+    private var drawer: KeyablePanel?
     private var drawerDismissMonitors: [Any] = []
     private var statusItem: NSStatusItem!
     private let hotKeys = HotKeyManager()
@@ -26,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var mouseMonitors: [Any] = []
 
     private var lastShownSecond = -1
+    private var lastShownTask: String?
     private var pointerInside = false
     private var isSnapping = false
     private var isResizing = false
@@ -56,6 +57,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Inert unless the variable is set.
         if ProcessInfo.processInfo.environment["POMODORO_DEBUG_DRAWER"] != nil {
             toggleDrawer()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+                guard let self else { return }
+                let report = """
+                app active        : \(NSApp.isActive)
+                drawer exists     : \(self.drawer != nil)
+                drawer canBecomeKey: \(self.drawer?.canBecomeKey ?? false)
+                drawer isKeyWindow: \(self.drawer?.isKeyWindow ?? false)
+                first responder   : \(String(describing: self.drawer?.firstResponder))
+                """
+                try? report.write(
+                    to: URL(fileURLWithPath: NSTemporaryDirectory())
+                        .appendingPathComponent("pomodoro-drawer.log"),
+                    atomically: true, encoding: .utf8)
+            }
         }
     }
 
@@ -323,9 +338,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func openDrawer() {
         let h = TaskDrawerView.height(for: tasks.items.count)
-        let p = NSPanel(
+        // Note the absence of .nonactivatingPanel, which the dial does use.
+        // A non-activating panel never becomes key while another app is
+        // frontmost, so every keystroke went to the editor behind it and the
+        // quick-add field looked broken. An NSPanel can become key while
+        // borderless, so typing works once the app is activated below.
+        let p = KeyablePanel(
             contentRect: NSRect(x: 0, y: 0, width: TaskDrawerView.width, height: h),
-            styleMask: [.nonactivatingPanel, .borderless, .fullSizeContentView],
+            styleMask: [.borderless, .fullSizeContentView],
             backing: .buffered, defer: false
         )
         p.isFloatingPanel = true
@@ -335,10 +355,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         p.backgroundColor = .clear
         p.hasShadow = true
         p.hidesOnDeactivate = false
-        // The quick-add field needs keystrokes, but merely glancing at your list
-        // must not steal focus from your editor. becomesKeyOnlyIfNeeded gives
-        // exactly that: the panel takes key status only when you click the field.
-        p.becomesKeyOnlyIfNeeded = true
+        p.becomesKeyOnlyIfNeeded = false
         p.worksWhenModal = true
         p.animationBehavior = .none
         p.isReleasedWhenClosed = false
@@ -354,6 +371,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         drawer = p
         positionDrawer()
         p.orderFrontRegardless()
+        // Opening the drawer is a deliberate act — you want to type. Activating
+        // is the cost of a working text field; closing hands activation back.
+        // NSApp.activate() rather than activate(ignoringOtherApps:), which is
+        // deprecated from macOS 14 in favour of cooperative activation.
+        NSApp.activate()
+        p.makeKeyAndOrderFront(nil)
         ui.drawerOpen = true
         installDrawerDismissal()
     }
@@ -364,6 +387,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         drawer?.orderOut(nil)
         drawer = nil
         ui.drawerOpen = false
+        // Give focus back to whatever you were working in.
+        NSApp.deactivate()
     }
 
     /// Sits just under the disc, centred on it — and flips above when the dial
@@ -429,7 +454,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func openSettings() {
         if settingsWindow == nil {
             let w = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 460, height: 540),
+                contentRect: NSRect(x: 0, y: 0, width: 700, height: 560),
                 styleMask: [.titled, .closable, .miniaturizable],
                 backing: .buffered, defer: false
             )
@@ -577,9 +602,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func refreshStatusTitle() {
         let second = Int(engine.remaining.rounded(.up))
-        guard second != lastShownSecond else { return }
+        let task = engine.headlineIsTask ? engine.activeTaskTitle : nil
+        // Guard on the task too, or switching tasks wouldn't repaint until the
+        // next whole second ticked over.
+        guard second != lastShownSecond || task != lastShownTask else { return }
         lastShownSecond = second
-        statusItem.button?.title = " " + engine.display
+        lastShownTask = task
+
+        if let task {
+            // Menu bar space is contended; a few words is the most it can spare.
+            let short = task.count > 14 ? String(task.prefix(13)) + "…" : task
+            statusItem.button?.title = " \(short)   \(engine.display)"
+        } else {
+            statusItem.button?.title = " " + engine.display
+        }
+        statusItem.button?.toolTip = engine.activeTaskTitle
         let symbol = engine.isRunning ? engine.phase.symbol : "timer"
         statusItem.button?.image =
             NSImage(systemSymbolName: symbol, accessibilityDescription: engine.phase.title)

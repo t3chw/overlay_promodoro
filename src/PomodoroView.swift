@@ -46,7 +46,11 @@ struct PomodoroView: View {
     /// Below this there is no room for the time *and* the controls, so hovering
     /// swaps one for the other rather than hiding the controls entirely.
     private var compact: Bool { side < 150 }
-    private var showLabel: Bool { side >= 172 }
+    /// The phase label is decoration: the ring colour already tells you which
+    /// mode you're in, so it yields when space is tight. A task name is content
+    /// and always shows — it was gated at 172pt, which silently hid it on any
+    /// dial smaller than that.
+    private var showLabel: Bool { engine.headlineIsTask || side >= 168 }
     private var showDots: Bool { side >= 150 }
 
     private var colors: [Color] { prefs.theme.colors(for: engine.phase) }
@@ -160,12 +164,15 @@ struct PomodoroView: View {
                     // weight and more contrast. A phase name is a label, so it
                     // keeps the small tracked-caps treatment.
                     Text(engine.headline)
-                        .font(.system(size: (engine.headlineIsTask ? 10.5 : 9) * u,
+                        // Floored, or it scales into illegibility on a small dial.
+                        .font(.system(size: engine.headlineIsTask
+                                        ? max(10, 10.5 * u)
+                                        : max(8, 9 * u),
                                       weight: .semibold, design: .rounded))
                         .tracking(engine.headlineIsTask ? 0 : 2.2 * u)
                         .lineLimit(1)
                         .truncationMode(.tail)
-                        .frame(maxWidth: ring * 0.74)
+                        .frame(maxWidth: ring * 0.80)
                         .foregroundStyle(.white.opacity(engine.headlineIsTask ? 0.80 : 0.55))
                 }
 

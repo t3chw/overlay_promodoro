@@ -56,8 +56,8 @@ shortcut another app already owns. They can be turned off entirely.
 
 Pull the `⌄` tab under the dial (or press `⌃⌥⌘T`) and the list drops out.
 
-- **Type and press `↩`** to add a task. The field stays focused, so you can
-  reel off several in a row.
+- **Type and press `↩`**, or click **＋**, to add a task. The field stays
+  focused, so you can reel off several in a row.
 - **Click any row to start it.** The drawer closes, the timer restarts at that
   task's length, and the dial shows its name.
 - Each task carries **its own session length**, chosen from the pill on its row.
@@ -66,12 +66,17 @@ Pull the `⌄` tab under the dial (or press `⌃⌥⌘T`) and the list drops out
 - Completed sessions and minutes are **banked against the task**, so Settings ›
   Stats can tell you where the time actually went.
 
+While a task is running its name sits above the clock on the dial *and* beside
+the countdown in the menu bar, so you can see what you're meant to be doing
+without opening anything.
+
 Quick-add lives in the drawer rather than only in Settings on purpose: if
 jotting a task meant opening a settings window, nobody would use the feature.
 Settings › Tasks is the fuller surface — rename, reorder, retime, delete.
 
-The drawer never takes focus from whatever you're working in until you click
-into the text field, which is the one moment you actually want it to.
+Opening the drawer does take focus, which is the one deliberate exception to
+this app never stealing it — a text field that cannot be typed into is worse.
+Closing the drawer hands activation straight back.
 
 ## Install
 
@@ -158,6 +163,7 @@ bash spike/build.sh
 | [`src/PomodoroView.swift`](src/PomodoroView.swift) | The dial (SwiftUI) |
 | [`src/SettingsView.swift`](src/SettingsView.swift) | Settings window |
 | [`src/ResizeGrip.swift`](src/ResizeGrip.swift) | Corner resize handle (AppKit) |
+| [`src/KeyablePanel.swift`](src/KeyablePanel.swift) | Borderless panel that accepts typing |
 | [`src/HotKeys.swift`](src/HotKeys.swift) | Global shortcuts |
 | [`src/Geometry.swift`](src/Geometry.swift) | Resize pointer mapping, drawer placement |
 | [`src/main.swift`](src/main.swift) | Panel, click-through, snapping, menu bar |
@@ -169,6 +175,11 @@ bash spike/build.sh
 **The window is larger than the disc.** The disc is 82% of the window side, and
 that transparent margin is where the drop shadow lives. Without it the shadow is
 clipped by the window bounds and reads as a grey box.
+
+**Settings uses a sidebar, not a TabView.** SwiftUI's `TabView` draws its tabs
+into the *window title bar*, and when they don't fit it silently collapses the
+entire navigation behind an unlabelled `»` chevron. That is a width-dependent
+trap that returns the moment a section is added. A sidebar cannot overflow.
 
 **The resize grip is AppKit, not SwiftUI.** A SwiftUI `DragGesture` is rebuilt
 as the window resizes underneath it, which cancels the drag. An `NSView` keeps

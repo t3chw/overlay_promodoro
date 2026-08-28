@@ -1,5 +1,32 @@
 import SwiftUI
 
+/// Sections of the settings window.
+enum SettingsSection: String, CaseIterable, Identifiable {
+    case timer, tasks, appearance, behavior, stats
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .timer:      return "Timer"
+        case .tasks:      return "Tasks"
+        case .appearance: return "Appearance"
+        case .behavior:   return "Behavior"
+        case .stats:      return "Stats"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .timer:      return "timer"
+        case .tasks:      return "checklist"
+        case .appearance: return "paintbrush"
+        case .behavior:   return "slider.horizontal.3"
+        case .stats:      return "chart.bar"
+        }
+    }
+}
+
 struct SettingsView: View {
     @ObservedObject var prefs: Prefs
     @ObservedObject var stats: Stats
@@ -7,18 +34,77 @@ struct SettingsView: View {
     @ObservedObject var hotKeys: HotKeyManager
     @ObservedObject var tasks: TaskStore
 
+    @State private var section: SettingsSection = .timer
+
+    /// A plain sidebar rather than a TabView.
+    ///
+    /// TabView draws its tabs into the *window title bar*, and when they don't
+    /// fit it silently collapses the app's entire navigation behind an
+    /// unlabelled "»" chevron. That is a width-dependent trap: it comes back
+    /// the moment a section is added or a label gets longer. A sidebar is
+    /// always visible, always labelled, and cannot overflow.
     var body: some View {
-        TabView {
-            TimerTab(prefs: prefs).tabItem { Label("Timer", systemImage: "timer") }
-            TasksTab(tasks: tasks, prefs: prefs, engine: engine)
-                .tabItem { Label("Tasks", systemImage: "checklist") }
-            AppearanceTab(prefs: prefs).tabItem { Label("Appearance", systemImage: "paintbrush") }
-            BehaviorTab(prefs: prefs, hotKeys: hotKeys)
-                .tabItem { Label("Behavior", systemImage: "slider.horizontal.3") }
-            StatsTab(prefs: prefs, stats: stats, engine: engine, tasks: tasks)
-                .tabItem { Label("Stats", systemImage: "chart.bar") }
+        HStack(spacing: 0) {
+            sidebar
+            Divider()
+            detail.frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(width: 460, height: 540)
+        .frame(width: 700, height: 560)
+    }
+
+    private var sidebar: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(SettingsSection.allCases) { item in
+                SidebarRow(item: item, selected: item == section) { section = item }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(8)
+        .frame(width: 178)
+        .background(Color(nsColor: .underPageBackgroundColor))
+    }
+
+    @ViewBuilder
+    private var detail: some View {
+        switch section {
+        case .timer:      TimerTab(prefs: prefs)
+        case .tasks:      TasksTab(tasks: tasks, prefs: prefs, engine: engine)
+        case .appearance: AppearanceTab(prefs: prefs)
+        case .behavior:   BehaviorTab(prefs: prefs, hotKeys: hotKeys)
+        case .stats:      StatsTab(prefs: prefs, stats: stats, engine: engine, tasks: tasks)
+        }
+    }
+}
+
+private struct SidebarRow: View {
+    let item: SettingsSection
+    let selected: Bool
+    let action: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 9) {
+                Image(systemName: item.symbol)
+                    .font(.system(size: 12))
+                    .frame(width: 18)
+                Text(item.title).font(.system(size: 13))
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(selected ? Color.accentColor
+                          : (hovering ? Color.primary.opacity(0.07) : .clear))
+            )
+            .foregroundStyle(selected ? Color.white : Color.primary)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .accessibilityLabel(item.title)
     }
 }
 

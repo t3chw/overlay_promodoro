@@ -178,7 +178,7 @@ UserDefaults.standard.removePersistentDomain(forName: tSuite)
 let tStore = UserDefaults(suiteName: tSuite)!
 
 let tPrefs = Prefs(defaults: tStore)
-tPrefs.size = 260
+tPrefs.size = 164
 tPrefs.themeID = "ember"
 let tTasks = TaskStore(defaults: tStore)
 let tStats = Stats(defaults: tStore)
@@ -196,7 +196,7 @@ let tUI = UIState()
 tUI.drawerOpen = true
 tEngine.focus(on: spec.id)
 
-let dialSide: CGFloat = 260
+let dialSide: CGFloat = 164
 let drawerH = TaskDrawerView.height(for: tTasks.items.count)
 let compW: CGFloat = 420
 let compH = dialSide + 6 + drawerH + 32
@@ -233,3 +233,32 @@ if let cv = compWin.contentView,
     }
 }
 UserDefaults.standard.removePersistentDomain(forName: tSuite)
+
+
+// MARK: - The real settings window
+//
+// The side-by-side sheet above shows tab *contents*; this renders the actual
+// SettingsView so the TabView's own chrome is visible. That chrome is what
+// silently collapsed into a "»" overflow when the window was too narrow.
+
+let realSettings = NSWindow(
+    contentRect: NSRect(x: -6000, y: 0, width: 700, height: 560),
+    styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+realSettings.title = "Pomodoro Settings"
+realSettings.appearance = NSAppearance(named: .darkAqua)
+realSettings.contentView = NSHostingView(rootView:
+    SettingsView(prefs: sPrefs, stats: sStats, engine: sEngine,
+                 hotKeys: sHotKeys, tasks: sTasks))
+realSettings.orderFront(nil)
+RunLoop.main.run(until: Date().addingTimeInterval(2.0))
+
+// The tab control lives in the window's title bar, not the content view, so
+// snapshot the frame view (contentView.superview) to capture the whole window.
+if let frameView = realSettings.contentView?.superview,
+   let rep = frameView.bitmapImageRepForCachingDisplay(in: frameView.bounds) {
+    frameView.cacheDisplay(in: frameView.bounds, to: rep)
+    if let data = rep.representation(using: .png, properties: [:]) {
+        try data.write(to: URL(fileURLWithPath: "build/settings-window.png"))
+        print("wrote build/settings-window.png — \(rep.pixelsWide)x\(rep.pixelsHigh)px")
+    }
+}

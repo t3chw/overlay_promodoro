@@ -11,7 +11,7 @@ cd "$(dirname "$0")"
 VERSION="$(tr -d '[:space:]' < VERSION)"
 DEPLOY_TARGET="14.0"
 APP="build/Pomodoro.app"
-SOURCES=(src/Geometry.swift src/HotKeys.swift src/ResizeGrip.swift src/Prefs.swift
+SOURCES=(src/Geometry.swift src/HotKeys.swift src/ResizeGrip.swift src/KeyablePanel.swift src/Prefs.swift
          src/Tasks.swift src/Engine.swift src/PomodoroView.swift src/TaskDrawer.swift
          src/SettingsView.swift src/main.swift)
 

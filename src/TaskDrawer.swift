@@ -18,7 +18,7 @@ struct TaskDrawerView: View {
 
     static let width: CGFloat = 320
     static let rowHeight: CGFloat = 38
-    static let chromeHeight: CGFloat = 96      // quick-add + footer + dividers
+    static let chromeHeight: CGFloat = 98      // quick-add + footer + dividers
     static let maxRows = 7
 
     /// Panel height for a given task count — main.swift sizes the window from
@@ -50,32 +50,65 @@ struct TaskDrawerView: View {
                 .strokeBorder(Color.white.opacity(0.14), lineWidth: 0.8)
         )
         .environment(\.colorScheme, .dark)
-        .onAppear { draftMinutes = prefs.focusMinutes }
+        .onAppear {
+            draftMinutes = prefs.focusMinutes
+            // The panel needs a beat to become key before focus will take.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { composing = true }
+        }
     }
 
     // MARK: Quick add
 
-    private var composer: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "plus.circle.fill")
-                .font(.system(size: 13))
-                .foregroundStyle(.white.opacity(0.35))
+    private var canAdd: Bool {
+        !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
+    private var composer: some View {
+        HStack(spacing: 7) {
+            // A filled, bordered well — an unstyled TextField on a dark panel
+            // reads as a caption, not as somewhere you can type.
             TextField("What are you working on?", text: $draft)
                 .textFieldStyle(.plain)
                 .font(.system(size: 12.5))
                 .foregroundStyle(.white)
                 .focused($composing)
                 .onSubmit(commit)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(Color.white.opacity(0.10))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .strokeBorder(Color.white.opacity(composing ? 0.35 : 0.15),
+                                      lineWidth: 0.8)
+                )
 
             DurationMenu(minutes: $draftMinutes, accent: accent)
+
+            // Was a decorative icon, which looked clickable and wasn't.
+            Button(action: commit) {
+                ZStack {
+                    Circle().fill(canAdd ? accent : Color.white.opacity(0.10))
+                    Image(systemName: "plus")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(canAdd ? Color.black.opacity(0.85)
+                                                : Color.white.opacity(0.3))
+                }
+                .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.plain)
+            .disabled(!canAdd)
+            .help("Add task")
+            .accessibilityLabel("Add task")
         }
         .padding(.horizontal, 12)
-        .frame(height: 44)
+        .frame(height: 46)
     }
 
     private func commit() {
-        guard tasks.add(title: draft, minutes: draftMinutes) != nil else { return }
+        guard canAdd, tasks.add(title: draft, minutes: draftMinutes) != nil else { return }
         draft = ""
         composing = true      // keep the field hot so you can list several fast
     }
