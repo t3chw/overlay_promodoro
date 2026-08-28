@@ -124,3 +124,7 @@ subview added to it.
   pulse instead.
 
 Both need a real signing identity to fix.
+
+## License
+
+[MIT](LICENSE)
