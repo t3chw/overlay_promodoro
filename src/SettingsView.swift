@@ -4,12 +4,14 @@ struct SettingsView: View {
     @ObservedObject var prefs: Prefs
     @ObservedObject var stats: Stats
     @ObservedObject var engine: TimerEngine
+    @ObservedObject var hotKeys: HotKeyManager
 
     var body: some View {
         TabView {
             TimerTab(prefs: prefs).tabItem { Label("Timer", systemImage: "timer") }
             AppearanceTab(prefs: prefs).tabItem { Label("Appearance", systemImage: "paintbrush") }
-            BehaviorTab(prefs: prefs).tabItem { Label("Behavior", systemImage: "slider.horizontal.3") }
+            BehaviorTab(prefs: prefs, hotKeys: hotKeys)
+                .tabItem { Label("Behavior", systemImage: "slider.horizontal.3") }
             StatsTab(prefs: prefs, stats: stats, engine: engine)
                 .tabItem { Label("Stats", systemImage: "chart.bar") }
         }
@@ -134,6 +136,7 @@ struct AppearanceTab: View {
 
 struct BehaviorTab: View {
     @ObservedObject var prefs: Prefs
+    @ObservedObject var hotKeys: HotKeyManager
     @State private var loginError: String?
 
     var body: some View {
@@ -144,6 +147,28 @@ struct BehaviorTab: View {
                 Toggle("Snap to screen edges", isOn: $prefs.snapToEdges)
             } header: { Text("Window") } footer: {
                 Text("Click-through lets clicks pass to whatever is underneath, so the timer never blocks your work. Move the pointer over it and it becomes interactive again.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section {
+                Toggle("Global keyboard shortcuts", isOn: $prefs.hotKeysEnabled)
+                if prefs.hotKeysEnabled {
+                    ForEach(HotKeyManager.specs, id: \.id) { spec in
+                        HStack {
+                            Text(spec.name)
+                            Spacer()
+                            if !hotKeys.registered.contains(spec.id) {
+                                Text("in use by another app")
+                                    .font(.caption).foregroundStyle(.orange)
+                            }
+                            Text(spec.display)
+                                .font(.system(.body, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            } header: { Text("Shortcuts") } footer: {
+                Text("These work from any app and need no Accessibility permission.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 

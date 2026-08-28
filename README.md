@@ -1,5 +1,7 @@
 # overlay_promodoro
 
+[![CI](https://github.com/t3chw/overlay_promodoro/actions/workflows/ci.yml/badge.svg)](https://github.com/t3chw/overlay_promodoro/actions/workflows/ci.yml)
+
 A floating Pomodoro timer for macOS that stays on top of everything — including
 other apps' full-screen spaces — without stealing focus.
 
@@ -23,6 +25,9 @@ sits above your work and counts down.
 - **Resizable** from 130 to 420pt by dragging the corner grip, and everything —
   stroke weight, digits, controls — scales with it.
 - **Six themes**, adjustable opacity, and a fade-when-idle mode.
+- **Global shortcuts** that work from any app — and need no Accessibility
+  permission, because they use `RegisterEventHotKey` rather than a keyboard
+  event monitor.
 - **Session history** for the last 14 days.
 
 <img src="docs/hover.png" width="320" alt="Hover state showing the controls and resize grip">
@@ -30,6 +35,35 @@ sits above your work and counts down.
 Hovering reveals, all inside the ring: settings (top-left), quit (top-right),
 restart / play-pause / skip (centre), and the resize grip just outside the disc
 at the bottom-right. There is also a menu bar item with the same controls.
+
+| Shortcut | Action |
+|---|---|
+| `⌃⌥⌘P` | Start / pause |
+| `⌃⌥⌘K` | Skip to next phase |
+| `⌃⌥⌘R` | Restart the current phase |
+
+`⌃⌥⌘` is used because plainer combinations collide with system defaults — `⌃Space`
+and `⌃⌥Space` are input-source switching. Settings shows a warning next to any
+shortcut another app already owns. They can be turned off entirely.
+
+## Install
+
+Grab the zip from [Releases](https://github.com/t3chw/overlay_promodoro/releases),
+unpack it, and move `Pomodoro.app` to `/Applications`.
+
+**One extra step is required.** The app is ad-hoc signed but *not notarised*,
+because notarisation needs a paid Apple Developer account. Gatekeeper therefore
+refuses it on first launch (`spctl` reports `rejected`). Clear the download
+quarantine once:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Pomodoro.app
+```
+
+After that it opens normally, and updates in place work without repeating it.
+
+If you would rather not run that, build from source instead — locally built
+apps are never quarantined.
 
 ## Requirements
 
@@ -40,15 +74,17 @@ Xcode command line tools are enough — there is no Xcode project, just `swiftc`
 ## Build and run
 
 ```bash
-./build.sh
+./build.sh          # produces build/Pomodoro.app
 open build/Pomodoro.app
+
+./test.sh           # 39 tests, no simulator or Xcode project needed
+./package.sh        # produces build/Pomodoro-<version>.zip for distribution
 ```
 
-That produces a self-contained, ad-hoc signed `Pomodoro.app` of about 660KB.
-
-```bash
-./test.sh
-```
+The binary is built **universal** (arm64 + x86_64) against an explicit macOS 14
+deployment target. That matters: without `-target`, `swiftc` targets whatever
+the build machine runs, so building on macOS 26 yields a binary that refuses to
+launch on macOS 14 no matter what `LSMinimumSystemVersion` claims.
 
 ## How the always-on-top part works
 
@@ -119,11 +155,15 @@ subview added to it.
 - **Launch at login usually fails.** `SMAppService` generally refuses unsigned
   local builds. The toggle surfaces the real error; add the app by hand in
   System Settings › General › Login Items as a workaround.
-- **No system notifications.** Ad-hoc signed apps can't reliably obtain
-  notification authorisation, so phase changes use a system sound and a visual
-  pulse instead.
+- **No system notifications.** This was measured, not assumed: an ad-hoc signed
+  bundle gets `granted=false`, *"Notifications are not allowed for this
+  application"*, both when run directly and when launched through
+  LaunchServices. Phase changes therefore use a system sound and a visual pulse.
+  The probe used is in [`spike/notif/`](spike/notif/) if you want to re-check it
+  on a future macOS release.
 
-Both need a real signing identity to fix.
+Both need a paid Apple Developer account and notarisation to fix. Everything
+else in the app works without one.
 
 ## License
 

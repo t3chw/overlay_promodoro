@@ -1,0 +1,42 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test
+        run: ./test.sh
+
+      - name: Package
+        run: ./package.sh
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" build/Pomodoro-*.zip \
+            --title "${GITHUB_REF_NAME}" \
+            --notes "$(cat <<'NOTES'
+          Download the zip, unpack it, and move `Pomodoro.app` to `/Applications`.
+
+          This build is ad-hoc signed, not notarised (no paid Apple Developer
+          account), so Gatekeeper will refuse it on first launch. Clear the
+          download quarantine once:
+
+          ```
+          xattr -dr com.apple.quarantine /Applications/Pomodoro.app
+          ```
+
+          Then open it normally. See the README for what that means and why.
+          NOTES
+          )"

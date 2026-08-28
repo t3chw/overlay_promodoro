@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var grip: ResizeGripView!
     private var settingsWindow: NSWindow?
     private var statusItem: NSStatusItem!
+    private let hotKeys = HotKeyManager()
 
     private var bag = Set<AnyCancellable>()
     private var titleTimer: Timer?
@@ -44,11 +45,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         installPointerTracking()
         observePrefs()
         startTitleTimer()
+        applyHotKeys()
         applyPrefs()
     }
 
     func applicationWillTerminate(_ note: Notification) {
         mouseMonitors.forEach { NSEvent.removeMonitor($0) }
+        hotKeys.disable()
     }
 
     // MARK: Floating panel
@@ -210,7 +213,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             .store(in: &bag)
     }
 
+    private func applyHotKeys() {
+        guard prefs.hotKeysEnabled else { hotKeys.disable(); return }
+        hotKeys.enable([
+            1: { [weak self] in self?.engine.toggle() },
+            2: { [weak self] in self?.engine.skip() },
+            3: { [weak self] in self?.engine.reset() },
+        ])
+    }
+
     private func applyPrefs() {
+        if prefs.hotKeysEnabled != !hotKeys.registered.isEmpty { applyHotKeys() }
         applySize()
         applyAlpha()
         panel.level = prefs.alwaysOnTop ? .floating : .normal
@@ -292,7 +305,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             )
             w.title = "Pomodoro Settings"
             w.contentView = NSHostingView(
-                rootView: SettingsView(prefs: prefs, stats: stats, engine: engine))
+                rootView: SettingsView(prefs: prefs, stats: stats, engine: engine,
+                                       hotKeys: hotKeys))
             w.isReleasedWhenClosed = false
             w.center()
             settingsWindow = w

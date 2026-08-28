@@ -89,6 +89,7 @@ final class Prefs: ObservableObject {
     @Published var autoAdvance: Bool      { didSet { d.set(autoAdvance, forKey: K.auto) } }
     @Published var soundEnabled: Bool     { didSet { d.set(soundEnabled, forKey: K.sound) } }
     @Published var soundName: String      { didSet { d.set(soundName, forKey: K.soundName) } }
+    @Published var hotKeysEnabled: Bool   { didSet { d.set(hotKeysEnabled, forKey: K.hotKeys) } }
 
     /// Not persisted by us — SMAppService owns the truth; we mirror it.
     @Published var launchAtLogin: Bool = false
@@ -111,6 +112,7 @@ final class Prefs: ObservableObject {
         static let opacity = "opacity", dim = "dimWhenIdle", idleOpacity = "idleOpacity"
         static let clickThrough = "clickThrough", onTop = "alwaysOnTop", snap = "snapToEdges"
         static let auto = "autoAdvance", sound = "soundEnabled", soundName = "soundName"
+        static let hotKeys = "hotKeysEnabled"
         static let origin = "origin"
     }
 
@@ -137,6 +139,7 @@ final class Prefs: ObservableObject {
         autoAdvance = bool(K.auto, true)
         soundEnabled = bool(K.sound, true)
         soundName = store.string(forKey: K.soundName) ?? "Glass"
+        hotKeysEnabled = bool(K.hotKeys, true)
         launchAtLogin = Bundle.main.bundleIdentifier != nil
             && SMAppService.mainApp.status == .enabled
     }

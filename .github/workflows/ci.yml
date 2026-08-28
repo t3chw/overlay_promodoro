@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: macos-15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: |
+          sw_vers
+          swift --version
+
+      - name: Test
+        run: ./test.sh
+
+      - name: Build
+        run: ./build.sh
+
+      - name: Verify bundle
+        run: |
+          set -eux
+          test -x build/Pomodoro.app/Contents/MacOS/Pomodoro
+          test -f build/Pomodoro.app/Contents/Resources/Pomodoro.icns
+          # Must stay universal and must not silently drift off the stated minimum.
+          lipo -archs build/Pomodoro.app/Contents/MacOS/Pomodoro | grep -q arm64
+          lipo -archs build/Pomodoro.app/Contents/MacOS/Pomodoro | grep -q x86_64
+          vtool -show-build build/Pomodoro.app/Contents/MacOS/Pomodoro | grep -q "minos 14.0"
+          codesign --verify --verbose build/Pomodoro.app
+
+      - name: Package
+        run: ./package.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Pomodoro-app
+          path: build/Pomodoro-*.zip
+          if-no-files-found: error
