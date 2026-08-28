@@ -7,6 +7,10 @@ import SwiftUI
 struct TodoItem: Identifiable, Codable, Equatable {
     var id = UUID()
     var title: String
+    /// Primary colour for this task. nil falls back to the theme. Optional and
+    /// therefore backward compatible: task lists saved before colours existed
+    /// decode with this absent.
+    var colorHex: UInt32?
     /// Session length for this task, in minutes. Overrides the global focus
     /// duration while the task is active — "focus on this for that much time".
     var minutes: Double
@@ -76,10 +80,13 @@ final class TaskStore: ObservableObject {
     // MARK: Mutation
 
     @discardableResult
-    func add(title: String, minutes: Double) -> TodoItem? {
+    func add(title: String, minutes: Double, color: UInt32? = nil) -> TodoItem? {
         let clean = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty else { return nil }
-        let item = TodoItem(title: clean, minutes: Self.sane(minutes))
+        var item = TodoItem(title: clean, minutes: Self.sane(minutes))
+        // Rotate through the palette so a list is legible at a glance without
+        // anyone having to choose colours. Explicit picks override it.
+        item.colorHex = color ?? TaskPalette.next(after: items.first?.colorHex)
         items.insert(item, at: 0)      // newest first: you just typed it
         save()
         return item
@@ -105,6 +112,12 @@ final class TaskStore: ObservableObject {
         let clean = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty else { return }
         items[i].title = clean
+        save()
+    }
+
+    func setColor(_ id: UUID, _ hex: UInt32?) {
+        guard let i = items.firstIndex(where: { $0.id == id }) else { return }
+        items[i].colorHex = hex
         save()
     }
 
@@ -154,6 +167,46 @@ final class TaskStore: ObservableObject {
             d.set(data, forKey: itemsKey)
         }
         d.set(activeID?.uuidString, forKey: activeKey)
+    }
+}
+
+// MARK: - Task colours
+
+enum TaskPalette {
+    struct Swatch: Equatable {
+        let name: String
+        let hex: UInt32
+        /// Second stop, so a task ring keeps the same gradient depth the themes
+        /// have rather than reading as a flat band.
+        let hex2: UInt32
+    }
+
+    static let all: [Swatch] = [
+        Swatch(name: "Coral",  hex: 0xFF6B5B, hex2: 0xFFA45B),
+        Swatch(name: "Amber",  hex: 0xFFA92E, hex2: 0xFFD95B),
+        Swatch(name: "Lime",   hex: 0x9ACD3C, hex2: 0xD6E24A),
+        Swatch(name: "Teal",   hex: 0x2FC08A, hex2: 0x6FE3B4),
+        Swatch(name: "Sky",    hex: 0x2E9BFF, hex2: 0x5BD4F0),
+        Swatch(name: "Indigo", hex: 0x6A7BFF, hex2: 0x9B7BFF),
+        Swatch(name: "Violet", hex: 0xA65BFF, hex2: 0xE06BE0),
+        Swatch(name: "Rose",   hex: 0xFF4E8B, hex2: 0xFF8AA8),
+    ]
+
+    static func swatch(_ hex: UInt32) -> Swatch? { all.first { $0.hex == hex } }
+
+    /// Gradient pair for a stored colour. An unknown value — a palette that has
+    /// since changed — degrades to a flat pair rather than vanishing.
+    static func pair(_ hex: UInt32) -> [UInt32] {
+        guard let s = swatch(hex) else { return [hex, hex] }
+        return [s.hex, s.hex2]
+    }
+
+    /// The next colour in rotation after the one most recently used.
+    static func next(after previous: UInt32?) -> UInt32 {
+        guard let previous, let i = all.firstIndex(where: { $0.hex == previous }) else {
+            return all[0].hex
+        }
+        return all[(i + 1) % all.count].hex
     }
 }
 

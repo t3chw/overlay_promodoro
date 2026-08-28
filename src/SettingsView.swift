@@ -496,6 +496,23 @@ struct TasksTab: View {
             }
             .buttonStyle(.plain)
 
+            Menu {
+                ForEach(TaskPalette.all, id: \.hex) { swatch in
+                    Button(swatch.name) { tasks.setColor(item.id, swatch.hex) }
+                }
+                Divider()
+                Button("Use theme colour") { tasks.setColor(item.id, nil) }
+            } label: {
+                Circle()
+                    .fill(item.colorHex.map { Color(hex: $0) } ?? Color.secondary)
+                    .frame(width: 12, height: 12)
+                    .overlay(Circle().strokeBorder(Color.primary.opacity(0.2), lineWidth: 0.7))
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Task colour")
+
             TextField("", text: Binding(get: { item.title },
                                         set: { tasks.setTitle(item.id, $0) }))
                 .textFieldStyle(.plain)

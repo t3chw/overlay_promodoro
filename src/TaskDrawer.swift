@@ -14,9 +14,10 @@ struct TaskDrawerView: View {
 
     @State private var draft = ""
     @State private var draftMinutes: Double = 25
+    @State private var draftColor: UInt32? = nil
     @FocusState private var composing: Bool
 
-    static let width: CGFloat = 320
+    static let width: CGFloat = 344
     static let rowHeight: CGFloat = 38
     static let chromeHeight: CGFloat = 98      // quick-add + footer + dividers
     static let maxRows = 7
@@ -85,6 +86,11 @@ struct TaskDrawerView: View {
                                       lineWidth: 0.8)
                 )
 
+            // Shows the colour the task will actually get, not the theme's:
+            // new tasks are auto-assigned the next palette colour, so falling
+            // back to the theme swatch here would have been a lie.
+            ColorDot(hex: draftColor ?? TaskPalette.next(after: tasks.items.first?.colorHex),
+                     fallback: accent) { draftColor = $0 }
             DurationMenu(minutes: $draftMinutes, accent: accent)
 
             // Was a decorative icon, which looked clickable and wasn't.
@@ -108,8 +114,11 @@ struct TaskDrawerView: View {
     }
 
     private func commit() {
-        guard canAdd, tasks.add(title: draft, minutes: draftMinutes) != nil else { return }
+        guard canAdd,
+              tasks.add(title: draft, minutes: draftMinutes, color: draftColor) != nil
+        else { return }
         draft = ""
+        draftColor = nil      // back to auto-rotation for the next one
         composing = true      // keep the field hot so you can list several fast
     }
 
@@ -133,11 +142,11 @@ struct TaskDrawerView: View {
                         ForEach(tasks.ordered) { item in
                             TaskRow(item: item,
                                     isActive: item.id == tasks.activeID,
-                                    isRunning: engine.isRunning,
                                     accent: accent,
                                     onStart: { onStart(item.id) },
                                     onToggle: { tasks.toggleDone(item.id) },
                                     onMinutes: { tasks.setMinutes(item.id, $0) },
+                                    onColor: { tasks.setColor(item.id, $0) },
                                     onDelete: { tasks.remove(item.id) })
                         }
                     }
@@ -174,79 +183,161 @@ struct TaskDrawerView: View {
 private struct TaskRow: View {
     let item: TodoItem
     let isActive: Bool
-    let isRunning: Bool
     let accent: Color
     let onStart: () -> Void
     let onToggle: () -> Void
     let onMinutes: (Double) -> Void
+    let onColor: (UInt32?) -> Void
     let onDelete: () -> Void
 
     @State private var hovering = false
 
+    private var tint: Color { item.colorHex.map { Color(hex: $0) } ?? accent }
+
     var body: some View {
-        HStack(spacing: 8) {
-            // Left accent marks the task the timer is currently sized from.
+        // Every control is a sibling with its own hit area. The row used to be
+        // one big tap gesture with the buttons layered on top, so a click on
+        // delete was swallowed by the row and started the task instead.
+        HStack(spacing: 7) {
             Rectangle()
-                .fill(isActive ? accent : .clear)
+                .fill(isActive ? tint : .clear)
                 .frame(width: 2.5)
 
             Button(action: onToggle) {
                 Image(systemName: item.done ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 13))
-                    .foregroundStyle(item.done ? accent : Color.white.opacity(0.35))
+                    .foregroundStyle(item.done ? tint : Color.white.opacity(0.35))
+                    .frame(width: 16)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel(item.done ? "Mark not done" : "Mark done")
 
-            Text(item.title)
-                .font(.system(size: 12.5, weight: isActive ? .semibold : .regular))
-                .foregroundStyle(item.done ? .white.opacity(0.35) : .white.opacity(0.92))
-                .strikethrough(item.done, color: .white.opacity(0.3))
-                .lineLimit(1)
-                .truncationMode(.tail)
-
-            Spacer(minLength: 4)
-
-            if item.accumulated > 0 {
-                Text(item.totalLabel)
-                    .font(.system(size: 9.5))
-                    .monospacedDigit()
-                    .foregroundStyle(.white.opacity(0.35))
+            Button(action: { if !item.done { onStart() } }) {
+                HStack(spacing: 6) {
+                    Text(item.title)
+                        .font(.system(size: 12.5, weight: isActive ? .semibold : .regular))
+                        .foregroundStyle(item.done ? .white.opacity(0.35) : .white.opacity(0.92))
+                        .strikethrough(item.done, color: .white.opacity(0.3))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Spacer(minLength: 2)
+                    if item.accumulated > 0 {
+                        Text(item.totalLabel)
+                            .font(.system(size: 9.5))
+                            .monospacedDigit()
+                            .foregroundStyle(.white.opacity(0.35))
+                    }
+                }
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Focus on \(item.title)")
+
+            ColorDot(hex: item.colorHex, fallback: accent, onPick: onColor)
 
             DurationMenu(minutes: Binding(get: { item.minutes }, set: onMinutes),
-                         accent: accent)
+                         accent: tint)
 
-            // Fixed slot, so revealing delete on hover never reflows the row.
-            ZStack {
-                if hovering {
-                    Button(action: onDelete) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(.white.opacity(0.45))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Delete task")
-                } else if isActive {
-                    Image(systemName: isRunning ? "pause.fill" : "play.fill")
-                        .font(.system(size: 9))
-                        .foregroundStyle(accent)
-                }
-            }
-            .frame(width: 14)
+            DeleteButton(visible: hovering, action: onDelete)
         }
-        .padding(.trailing, 12)
+        .padding(.trailing, 10)
         .frame(height: 38)
         .background(
-            Rectangle().fill(isActive ? accent.opacity(0.12)
+            Rectangle().fill(isActive ? tint.opacity(0.14)
                              : (hovering ? Color.white.opacity(0.06) : .clear))
         )
-        // The whole row starts the task; the controls above consume their own
-        // clicks, so there's no ambiguity about what a click does.
-        .contentShape(Rectangle())
-        .onTapGesture { if !item.done { onStart() } }
         .onHover { hovering = $0 }
-        .help(item.done ? "Completed" : "Focus on “\(item.title)” for \(TaskDuration.label(item.minutes))")
+        .help(item.done ? "Completed"
+              : "Focus on \u{201C}\(item.title)\u{201D} for \(TaskDuration.label(item.minutes))")
+    }
+}
+
+// MARK: - Delete
+
+private struct DeleteButton: View {
+    let visible: Bool
+    let action: () -> Void
+
+    @State private var over = false
+
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                Circle().fill(Color(hex: 0xFF453A).opacity(over ? 0.95 : 0.20))
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .heavy))
+                    .foregroundStyle(over ? Color.white : Color(hex: 0xFF6B60))
+            }
+            .frame(width: 21, height: 21)
+        }
+        .buttonStyle(.plain)
+        .opacity(visible ? 1 : 0)
+        .allowsHitTesting(visible)
+        .onHover { over = $0 }
+        .help("Delete task")
+        .accessibilityLabel("Delete task")
+    }
+}
+
+// MARK: - Colour
+
+/// A plain Button plus a popover, deliberately not a Menu.
+///
+/// A Menu's label is drawn by AppKit and its background does not reliably
+/// render — a bare coloured circle as a menu label can end up invisible, which
+/// for a control whose entire job is showing a colour is fatal. A Button always
+/// draws, and the popover gives direct selection rather than cycling.
+private struct ColorDot: View {
+    let hex: UInt32?
+    let fallback: Color
+    let onPick: (UInt32?) -> Void
+
+    @State private var showing = false
+
+    var body: some View {
+        Button { showing.toggle() } label: {
+            Circle()
+                .fill(hex.map { Color(hex: $0) } ?? fallback)
+                .frame(width: 12, height: 12)
+                .overlay(Circle().strokeBorder(Color.white.opacity(0.45), lineWidth: 0.8))
+                .frame(width: 18, height: 18)      // a reachable hit target
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Task colour")
+        .accessibilityLabel("Task colour")
+        .popover(isPresented: $showing, arrowEdge: .bottom) {
+            VStack(spacing: 9) {
+                HStack(spacing: 7) {
+                    ForEach(TaskPalette.all, id: \.hex) { swatch in
+                        Button {
+                            onPick(swatch.hex)
+                            showing = false
+                        } label: {
+                            Circle()
+                                .fill(Color(hex: swatch.hex))
+                                .frame(width: 19, height: 19)
+                                .overlay(
+                                    Circle().strokeBorder(
+                                        Color.primary.opacity(hex == swatch.hex ? 0.9 : 0.18),
+                                        lineWidth: hex == swatch.hex ? 2 : 0.8)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .help(swatch.name)
+                    }
+                }
+                Button("Use theme colour") {
+                    onPick(nil)
+                    showing = false
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            }
+            .padding(12)
+        }
     }
 }
 

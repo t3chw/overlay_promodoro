@@ -352,6 +352,53 @@ check("an oversized window pins to the origin rather than flipping",
       hugeFit.origin.x == visible.minX && hugeFit.origin.y == visible.minY,
       "got \(hugeFit)")
 
+print("task colours")
+let colourSuite = "dev.local.pomodoro.tests.colour"
+UserDefaults.standard.removePersistentDomain(forName: colourSuite)
+let cStore = UserDefaults(suiteName: colourSuite)!
+let cTasks = TaskStore(defaults: cStore)
+
+let first = cTasks.add(title: "One", minutes: 25)!
+let second = cTasks.add(title: "Two", minutes: 25)!
+let third = cTasks.add(title: "Three", minutes: 25)!
+check("new tasks get a colour automatically", first.colorHex != nil)
+check("consecutive tasks differ", first.colorHex != second.colorHex,
+      "\(String(describing: first.colorHex)) vs \(String(describing: second.colorHex))")
+check("rotation keeps going", second.colorHex != third.colorHex)
+check("assigned colours are in the palette",
+      [first, second, third].allSatisfy { i in
+          TaskPalette.all.contains { $0.hex == i.colorHex }
+      })
+
+let explicit = cTasks.add(title: "Explicit", minutes: 25, color: 0xA65BFF)!
+check("an explicit colour wins over rotation", explicit.colorHex == 0xA65BFF)
+
+cTasks.setColor(explicit.id, nil)
+check("clearing falls back to the theme",
+      cTasks.items.first { $0.id == explicit.id }?.colorHex == nil)
+
+check("a known colour yields a gradient pair", TaskPalette.pair(0xFF6B5B).count == 2)
+check("gradient stops differ", TaskPalette.pair(0xFF6B5B)[0] != TaskPalette.pair(0xFF6B5B)[1])
+// A palette that changed under an old saved list must not blank the ring.
+check("an unknown colour degrades to a flat pair",
+      TaskPalette.pair(0x123456) == [0x123456, 0x123456])
+
+print("task colour drives the ring, breaks do not")
+let cPrefs = Prefs(defaults: cStore)
+let cEngine = TimerEngine(prefs: cPrefs, stats: Stats(defaults: cStore), tasks: cTasks)
+cTasks.activate(second.id)
+RunLoop.main.run(until: Date().addingTimeInterval(0.15))
+check("focus uses the task colour", cEngine.activeTaskColorHex == second.colorHex,
+      "got \(String(describing: cEngine.activeTaskColorHex))")
+cEngine.skip()          // into a break, task still active
+check("a break keeps the theme colour", cEngine.activeTaskColorHex == nil,
+      "phase \(cEngine.phase), got \(String(describing: cEngine.activeTaskColorHex))")
+
+let cReader = TaskStore(defaults: cStore)
+check("colours persist",
+      cReader.items.first { $0.id == second.id }?.colorHex == second.colorHex)
+UserDefaults.standard.removePersistentDomain(forName: colourSuite)
+
 UserDefaults.standard.removePersistentDomain(forName: suite)
 print(failures == 0 ? "\nALL PASSED" : "\n\(failures) FAILED")
 exit(failures == 0 ? 0 : 1)

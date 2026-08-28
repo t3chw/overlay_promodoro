@@ -53,7 +53,12 @@ struct PomodoroView: View {
     private var showLabel: Bool { engine.headlineIsTask || side >= 168 }
     private var showDots: Bool { side >= 150 }
 
-    private var colors: [Color] { prefs.theme.colors(for: engine.phase) }
+    private var colors: [Color] {
+        if let hex = engine.activeTaskColorHex {
+            return TaskPalette.pair(hex).map { Color(hex: $0) }
+        }
+        return prefs.theme.colors(for: engine.phase)
+    }
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: !engine.isRunning)) { ctx in

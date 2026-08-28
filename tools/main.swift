@@ -188,10 +188,12 @@ tPrefs.themeID = "ember"
 let tTasks = TaskStore(defaults: tStore)
 let tStats = Stats(defaults: tStore)
 
-let done = tTasks.add(title: "Stand-up notes", minutes: 15)!
-_ = tTasks.add(title: "Review the pull request", minutes: 25)
-_ = tTasks.add(title: "Sketch the onboarding flow", minutes: 50)
-let spec = tTasks.add(title: "Write the spec", minutes: 45)!
+let done = tTasks.add(title: "Stand-up notes", minutes: 15, color: 0x9ACD3C)!
+_ = tTasks.add(title: "Review the pull request", minutes: 25, color: 0xFF4E8B)
+_ = tTasks.add(title: "Sketch the onboarding flow", minutes: 50, color: 0xFFA92E)
+// Deliberately not the Ember theme colour, so the ring proves it follows the
+// task rather than the theme.
+let spec = tTasks.add(title: "Write the spec", minutes: 45, color: 0x6A7BFF)!
 tTasks.toggleDone(done.id)
 tTasks.activate(spec.id)
 tTasks.creditActive(minutes: 90)

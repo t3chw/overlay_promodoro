@@ -60,9 +60,11 @@ Pull the `⌄` tab under the dial (or press `⌃⌥⌘T`) and the list drops out
   focused, so you can reel off several in a row.
 - **Click any row to start it.** The drawer closes, the timer restarts at that
   task's length, and the dial shows its name.
-- Each task carries **its own session length**, chosen from the pill on its row.
-  While a task is active it overrides the global focus duration — breaks are
-  unaffected, and the break returns you to the same task.
+- Each task carries **its own colour and session length**, set from the dot and
+  the pill on its row. While a task is running the dial's ring takes its colour,
+  so a glance tells you which task you're on. New tasks rotate through the
+  palette automatically, so a list is legible without anyone picking anything.
+  Breaks keep the theme's own colours, so the ring still reads as "resting".
 - Completed sessions and minutes are **banked against the task**, so Settings ›
   Stats can tell you where the time actually went.
 
@@ -109,7 +111,7 @@ Xcode command line tools are enough — there is no Xcode project, just `swiftc`
 ./build.sh          # produces build/Pomodoro.app
 open build/Pomodoro.app
 
-./test.sh           # 87 tests, no simulator or Xcode project needed
+./test.sh           # 99 tests, no simulator or Xcode project needed
 ./package.sh        # produces build/Pomodoro-<version>.zip for distribution
 ```
 

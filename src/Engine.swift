@@ -115,6 +115,11 @@ final class TimerEngine: ObservableObject {
     /// Full title for tooltips, whatever phase we're in — the dial truncates.
     var activeTaskTitle: String? { tasks.active?.title }
 
+    /// Colour of the task being worked on, if any. Only meaningful during a
+    /// focus phase: breaks keep the theme's own break colours, so the ring still
+    /// says "you are resting" no matter what colour the task is.
+    var activeTaskColorHex: UInt32? { phase == .focus ? tasks.active?.colorHex : nil }
+
     /// Sub-tick-accurate remaining time. The 10 Hz ticker keeps `remaining`
     /// roughly fresh, but the ring redraws at 60 fps and would visibly
     /// stair-step off it, so the view asks for an exact value per frame.
