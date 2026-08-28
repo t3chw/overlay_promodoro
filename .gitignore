@@ -1,0 +1,13 @@
+# Build output
+build/
+spike/build/
+
+# macOS
+.DS_Store
+*.swp
+
+# Xcode (if a project is ever added)
+*.xcuserstate
+xcuserdata/
+DerivedData/
+*.xcworkspace/xcuserdata/
